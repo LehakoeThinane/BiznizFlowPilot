@@ -1,0 +1,56 @@
+"""Lead request/response schemas."""
+
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
+
+from pydantic import BaseModel, Field
+
+
+class LeadBase(BaseModel):
+    """Shared lead fields."""
+
+    customer_id: Optional[UUID] = None
+    assigned_to: Optional[UUID] = None
+    status: str = Field(default="new", pattern="^(new|contacted|qualified|won|lost)$")
+    source: Optional[str] = None
+    value: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class LeadCreate(LeadBase):
+    """Create lead request."""
+
+    pass
+
+
+class LeadUpdate(BaseModel):
+    """Update lead request."""
+
+    customer_id: Optional[UUID] = None
+    assigned_to: Optional[UUID] = None
+    status: Optional[str] = Field(None, pattern="^(new|contacted|qualified|won|lost)$")
+    source: Optional[str] = None
+    value: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class LeadResponse(LeadBase):
+    """Lead response."""
+
+    id: UUID
+    business_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LeadListResponse(BaseModel):
+    """List of leads response."""
+
+    items: list[LeadResponse]
+    total: int
+    skip: int
+    limit: int

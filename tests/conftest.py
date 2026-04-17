@@ -1,0 +1,253 @@
+"""Pytest configuration and fixtures."""
+
+import pytest
+from uuid import uuid4
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
+
+from app.core.database import get_db
+from app.core.security import hash_password
+from app.main import app
+from app.models import Base
+from app.models.business import Business
+from app.models.user import User
+from app.models.customer import Customer
+from app.models.lead import Lead
+from app.models.task import Task
+from app.schemas.auth import CurrentUser
+
+
+@pytest.fixture(scope="function")
+def test_db():
+    """Create in-memory SQLite database for testing."""
+    engine = create_engine("sqlite:///:memory:")
+    
+    # Create all tables
+    Base.metadata.create_all(bind=engine)
+    
+    # Create session
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = TestingSessionLocal()
+    
+    # Override dependency
+    def override_get_db():
+        try:
+            yield session
+        finally:
+            session.close()
+    
+    app.dependency_overrides[get_db] = override_get_db
+    
+    yield session
+    
+    # Cleanup
+    app.dependency_overrides.clear()
+    session.close()
+
+
+@pytest.fixture
+def client(test_db):
+    """Create test client with in-memory database."""
+    return TestClient(app)
+
+
+@pytest.fixture
+def sample_user_data():
+    """Sample user registration data."""
+    return {
+        "business_name": "Test Company",
+        "email": "owner@example.com",
+        "password": "testpassword123",
+        "first_name": "John",
+        "last_name": "Doe",
+    }
+
+
+@pytest.fixture
+def registered_user(client, sample_user_data):
+    """Register a user and return tokens."""
+    response = client.post("/api/v1/auth/register", json=sample_user_data)
+    assert response.status_code == 200
+    return response.json()
+
+
+# ============================================================================
+# Phase 2 Fixtures: Multi-role users and sample CRM data
+# ============================================================================
+
+
+@pytest.fixture
+def owner_business(test_db: Session) -> Business:
+    """Create a business for owner."""
+    business = Business(
+        id=uuid4(),
+        name="Owner Business",
+        email=f"owner@{uuid4().hex[:8]}.com",
+        phone="+1234567890",
+    )
+    test_db.add(business)
+    test_db.commit()
+    return business
+
+
+@pytest.fixture
+def other_business(test_db: Session) -> Business:
+    """Create another business for isolation testing."""
+    business = Business(
+        id=uuid4(),
+        name="Other Business",
+        email=f"other@{uuid4().hex[:8]}.com",
+        phone="+0987654321",
+    )
+    test_db.add(business)
+    test_db.commit()
+    return business
+
+
+@pytest.fixture
+def owner_user(test_db: Session, owner_business: Business) -> CurrentUser:
+    """Create owner user with access."""
+    user = User(
+        id=uuid4(),
+        business_id=owner_business.id,
+        email="owner@test.com",
+        password_hash=hash_password("password123"),
+        first_name="Owner",
+        last_name="User",
+        role="owner",
+        is_active=True,
+    )
+    test_db.add(user)
+    test_db.commit()
+    
+    return CurrentUser(
+        user_id=str(user.id),
+        business_id=str(owner_business.id),
+        email=user.email,
+        role="owner",
+        full_name=f"{user.first_name} {user.last_name}",
+    )
+
+
+@pytest.fixture
+def manager_user(test_db: Session, owner_business: Business) -> CurrentUser:
+    """Create manager user with access."""
+    user = User(
+        id=uuid4(),
+        business_id=owner_business.id,
+        email="manager@test.com",
+        password_hash=hash_password("password123"),
+        first_name="Manager",
+        last_name="User",
+        role="manager",
+        is_active=True,
+    )
+    test_db.add(user)
+    test_db.commit()
+    
+    return CurrentUser(
+        user_id=str(user.id),
+        business_id=str(owner_business.id),
+        email=user.email,
+        role="manager",
+        full_name=f"{user.first_name} {user.last_name}",
+    )
+
+
+@pytest.fixture
+def staff_user(test_db: Session, owner_business: Business) -> CurrentUser:
+    """Create staff user with limited access."""
+    user = User(
+        id=uuid4(),
+        business_id=owner_business.id,
+        email="staff@test.com",
+        password_hash=hash_password("password123"),
+        first_name="Staff",
+        last_name="User",
+        role="staff",
+        is_active=True,
+    )
+    test_db.add(user)
+    test_db.commit()
+    
+    return CurrentUser(
+        user_id=str(user.id),
+        business_id=str(owner_business.id),
+        email=user.email,
+        role="staff",
+        full_name=f"{user.first_name} {user.last_name}",
+    )
+
+
+@pytest.fixture
+def other_user(test_db: Session, other_business: Business) -> CurrentUser:
+    """Create user in different business for isolation testing."""
+    user = User(
+        id=uuid4(),
+        business_id=other_business.id,
+        email="other@test.com",
+        password_hash=hash_password("password123"),
+        first_name="Other",
+        last_name="User",
+        role="owner",
+        is_active=True,
+    )
+    test_db.add(user)
+    test_db.commit()
+    
+    return CurrentUser(
+        user_id=str(user.id),
+        business_id=str(other_business.id),
+        email=user.email,
+        role="owner",
+        full_name=f"{user.first_name} {user.last_name}",
+    )
+
+
+@pytest.fixture
+def sample_customer(test_db: Session, owner_business: Business) -> Customer:
+    """Create sample customer."""
+    customer = Customer(
+        id=uuid4(),
+        business_id=owner_business.id,
+        name="Acme Corp",
+        email="contact@acme.com",
+        phone="+1234567890",
+        company="Acme Corporation",
+    )
+    test_db.add(customer)
+    test_db.commit()
+    return customer
+
+
+@pytest.fixture
+def sample_lead(test_db: Session, owner_business: Business, sample_customer: Customer) -> Lead:
+    """Create sample lead."""
+    lead = Lead(
+        id=uuid4(),
+        business_id=owner_business.id,
+        customer_id=sample_customer.id,
+        status="new",
+        source="web_form",
+    )
+    test_db.add(lead)
+    test_db.commit()
+    return lead
+
+
+@pytest.fixture
+def sample_task(test_db: Session, owner_business: Business, sample_lead: Lead) -> Task:
+    """Create sample task."""
+    task = Task(
+        id=uuid4(),
+        business_id=owner_business.id,
+        lead_id=sample_lead.id,
+        title="Follow up with customer",
+        description="Call to discuss proposal",
+        status="pending",
+        priority="high",
+    )
+    test_db.add(task)
+    test_db.commit()
+    return task
