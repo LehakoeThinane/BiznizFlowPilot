@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.enums import EventType, WorkflowRunStatus
+from app.workflow_engine.definition_validation import validate_and_normalize_definition_config
 
 
 class WorkflowActionCreate(BaseModel):
@@ -89,6 +90,26 @@ class WorkflowDefinitionCreate(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
     workflow_id: Optional[UUID] = None
 
+    @field_validator("config")
+    @classmethod
+    def validate_config(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        return validate_and_normalize_definition_config(value)
+
+
+class WorkflowDefinitionUpdate(BaseModel):
+    """Patch workflow definition request."""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    is_active: Optional[bool] = None
+    config: Optional[Dict[str, Any]] = None
+
+    @field_validator("config")
+    @classmethod
+    def validate_config(cls, value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if value is None:
+            return None
+        return validate_and_normalize_definition_config(value)
+
 
 class WorkflowDefinitionResponse(BaseModel):
     """Workflow definition response."""
@@ -103,8 +124,18 @@ class WorkflowDefinitionResponse(BaseModel):
     conditions: Dict[str, Any]
     config: Dict[str, Any]
     workflow_id: Optional[UUID] = None
+    deleted_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+
+
+class WorkflowDefinitionListResponse(BaseModel):
+    """List response for workflow definitions."""
+
+    items: List[WorkflowDefinitionResponse]
+    total: int
+    skip: int
+    limit: int
 
 
 class WorkflowListResponse(BaseModel):

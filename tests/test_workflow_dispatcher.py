@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -11,7 +12,7 @@ from app.core.enums import EventStatus, EventType, WorkflowRunStatus
 from app.models import WorkflowAction, WorkflowDefinition, WorkflowRun
 from app.repositories.event import EventRepository
 from app.services.event import EventService
-from app.workflow_engine import InMemoryDefinitionProvider, WorkflowDispatcher
+from app.workflow_engine import DatabaseDefinitionProvider, InMemoryDefinitionProvider, WorkflowDispatcher
 from app.workers.event_dispatch import process_next_event_for_business
 
 
@@ -323,6 +324,47 @@ class TestWorkflowDispatcher:
         assert len(actions) == 1
         assert actions[0].action_type == "log"
 
+    def test_database_definition_provider_returns_active_event_matches(self, test_db: Session, owner_user):
+        active = WorkflowDefinition(
+            id=uuid4(),
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            is_active=True,
+            name="Active Definition",
+        )
+        inactive = WorkflowDefinition(
+            id=uuid4(),
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            is_active=False,
+            name="Inactive Definition",
+        )
+        soft_deleted = WorkflowDefinition(
+            id=uuid4(),
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            is_active=True,
+            name="Soft Deleted Definition",
+            deleted_at=datetime.now(timezone.utc),
+        )
+        different_event = WorkflowDefinition(
+            id=uuid4(),
+            business_id=owner_user.business_id,
+            event_type=EventType.TASK_CREATED,
+            is_active=True,
+            name="Other Event Definition",
+        )
+        test_db.add_all([active, inactive, soft_deleted, different_event])
+        test_db.commit()
+
+        provider = DatabaseDefinitionProvider(test_db)
+        definitions = provider.get_definitions_for_event(
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+        )
+
+        assert {definition.id for definition in definitions} == {active.id}
+
 
 class TestWorkerDispatchLoop:
     """Integration tests for claim -> dispatch -> commit loop."""
@@ -374,3 +416,55 @@ class TestWorkerDispatchLoop:
         assert len(runs) == 1
         assert runs[0].workflow_definition_id == valid_definition.id
         assert runs[0].status == WorkflowRunStatus.QUEUED
+
+    def test_claim_dispatch_defaults_to_database_provider(self, test_db: Session, owner_user):
+        event_service = EventService(test_db)
+        event = event_service.create_event(
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            entity_type="lead",
+            entity_id=uuid4(),
+            actor_id=owner_user.user_id,
+        )
+
+        definition = WorkflowDefinition(
+            id=uuid4(),
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            is_active=True,
+            name="DB-backed Definition",
+            config={
+                "actions": [
+                    {
+                        "action_type": "log",
+                        "message": "from-db-provider",
+                    }
+                ]
+            },
+        )
+        test_db.add(definition)
+        test_db.commit()
+
+        result = process_next_event_for_business(
+            db=test_db,
+            business_id=owner_user.business_id,
+            worker_id="worker-integration",
+            provider=None,
+        )
+
+        refreshed_event = EventRepository(test_db).get(owner_user.business_id, event.id)
+        runs = (
+            test_db.query(WorkflowRun)
+            .filter(
+                WorkflowRun.business_id == owner_user.business_id,
+                WorkflowRun.event_id == event.id,
+            )
+            .all()
+        )
+
+        assert result["claimed"] is True
+        assert result["runs_created"] == 1
+        assert result["event_status"] == EventStatus.DISPATCHED.value
+        assert refreshed_event.status == EventStatus.DISPATCHED
+        assert len(runs) == 1
+        assert runs[0].workflow_definition_id == definition.id

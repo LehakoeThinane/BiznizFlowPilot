@@ -74,6 +74,15 @@ class WorkflowDefinition(BaseModel):
     """
 
     __tablename__ = "workflow_definitions"
+    __table_args__ = (
+        Index(
+            "ix_workflow_definitions_business_event_active_created",
+            "business_id",
+            "event_type",
+            "is_active",
+            "created_at",
+        ),
+    )
 
     business_id = Column(
         PG_UUID(as_uuid=True),
@@ -90,6 +99,7 @@ class WorkflowDefinition(BaseModel):
     name = Column(String(255), nullable=False, default="Workflow Definition")
     conditions = Column(JSON, nullable=False, default=dict)
     config = Column(JSON, nullable=False, default=dict)
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
     # Legacy bridge while Workflow table is still used by CRUD endpoints.
     # TODO: Remove in Phase 6 once Workflow CRUD endpoints are migrated to

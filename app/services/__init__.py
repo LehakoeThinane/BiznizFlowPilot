@@ -6,6 +6,7 @@ from app.services.event import EventService
 from app.services.lead import LeadService
 from app.services.task import TaskService
 from app.services.workflow import WorkflowService
+from app.services.workflow_definition import WorkflowDefinitionService
 
 __all__ = [
     "AuthService",
@@ -14,4 +15,5 @@ __all__ = [
     "LeadService",
     "TaskService",
     "WorkflowService",
+    "WorkflowDefinitionService",
 ]

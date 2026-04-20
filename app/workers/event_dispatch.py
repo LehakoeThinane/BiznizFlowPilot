@@ -11,15 +11,12 @@ from app.core.enums import EventStatus
 from app.core.database import SessionLocal
 from app.repositories.workflow import WorkflowActionRepository
 from app.services.event import EventService
-from app.workflow_engine.definition_provider import DefinitionProvider
-from app.workflow_engine import InMemoryDefinitionProvider, WorkflowDispatcher
+from app.workflow_engine.definition_provider import DatabaseDefinitionProvider, DefinitionProvider
+from app.workflow_engine import WorkflowDispatcher
 from app.workers.celery_app import celery_app
 
 
 logger = logging.getLogger(__name__)
-
-# Phase-4 default provider. Phase-6 can swap in a DB-backed provider.
-definition_provider = InMemoryDefinitionProvider()
 
 
 def process_next_event_for_business(
@@ -40,7 +37,8 @@ def process_next_event_for_business(
             "event_status": None,
         }
 
-    dispatcher = WorkflowDispatcher(db=db, definition_provider=provider or definition_provider)
+    resolved_provider = provider or DatabaseDefinitionProvider(db)
+    dispatcher = WorkflowDispatcher(db=db, definition_provider=resolved_provider)
 
     try:
         runs = dispatcher.dispatch(event)
@@ -77,7 +75,6 @@ def dispatch_next_event_task(self, business_id: str, worker_id: str | None = Non
             db=db,
             business_id=business_uuid,
             worker_id=resolved_worker_id,
-            provider=definition_provider,
         )
 
 

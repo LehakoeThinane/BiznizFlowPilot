@@ -112,6 +112,74 @@ class WorkflowDefinitionRepository(BaseRepository[WorkflowDefinition]):
     def _session(self, db: Session | None) -> Session:
         return db or self.db
 
+    def _base_query(
+        self,
+        session: Session,
+        business_id: UUID,
+        *,
+        include_deleted: bool = False,
+    ):
+        query = session.query(WorkflowDefinition).filter(
+            WorkflowDefinition.business_id == business_id,
+        )
+        if not include_deleted:
+            query = query.filter(WorkflowDefinition.deleted_at.is_(None))
+        return query
+
+    def get(
+        self,
+        db: Session | None,
+        business_id: UUID,
+        definition_id: UUID,
+        *,
+        include_deleted: bool = False,
+    ) -> WorkflowDefinition | None:
+        session = self._session(db)
+        return (
+            self._base_query(session, business_id, include_deleted=include_deleted)
+            .filter(WorkflowDefinition.id == definition_id)
+            .first()
+        )
+
+    def list(
+        self,
+        db: Session | None,
+        business_id: UUID,
+        *,
+        event_type: EventType | None = None,
+        is_active: bool | None = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> List[WorkflowDefinition]:
+        session = self._session(db)
+        query = self._base_query(session, business_id)
+        if event_type is not None:
+            query = query.filter(WorkflowDefinition.event_type == event_type)
+        if is_active is not None:
+            query = query.filter(WorkflowDefinition.is_active.is_(is_active))
+        return (
+            query.order_by(WorkflowDefinition.created_at.asc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    def count(
+        self,
+        db: Session | None,
+        business_id: UUID,
+        *,
+        event_type: EventType | None = None,
+        is_active: bool | None = None,
+    ) -> int:
+        session = self._session(db)
+        query = self._base_query(session, business_id)
+        if event_type is not None:
+            query = query.filter(WorkflowDefinition.event_type == event_type)
+        if is_active is not None:
+            query = query.filter(WorkflowDefinition.is_active.is_(is_active))
+        return query.count()
+
     def get_definitions_for_event(
         self,
         db: Session | None,
@@ -120,14 +188,82 @@ class WorkflowDefinitionRepository(BaseRepository[WorkflowDefinition]):
     ) -> List[WorkflowDefinition]:
         session = self._session(db)
         return (
-            session.query(WorkflowDefinition)
+            self._base_query(session, business_id)
             .filter(
-                WorkflowDefinition.business_id == business_id,
                 WorkflowDefinition.event_type == event_type,
+                WorkflowDefinition.is_active.is_(True),
             )
             .order_by(WorkflowDefinition.created_at.asc())
             .all()
         )
+
+    def create_definition(
+        self,
+        db: Session | None,
+        *,
+        business_id: UUID,
+        event_type: EventType,
+        is_active: bool,
+        name: str,
+        conditions: dict[str, Any],
+        config: dict[str, Any],
+        workflow_id: UUID | None = None,
+    ) -> WorkflowDefinition:
+        session = self._session(db)
+        definition = WorkflowDefinition(
+            business_id=business_id,
+            event_type=event_type,
+            is_active=is_active,
+            name=name,
+            conditions=conditions,
+            config=config,
+            workflow_id=workflow_id,
+            deleted_at=None,
+        )
+        session.add(definition)
+        session.flush()
+        return definition
+
+    def update_definition(
+        self,
+        db: Session | None,
+        *,
+        business_id: UUID,
+        definition_id: UUID,
+        **updates: Any,
+    ) -> WorkflowDefinition | None:
+        definition = self.get(db, business_id, definition_id)
+        if definition is None:
+            return None
+
+        allowed_fields = {"name", "is_active", "config"}
+        invalid_fields = set(updates.keys()) - allowed_fields
+        if invalid_fields:
+            invalid_csv = ", ".join(sorted(invalid_fields))
+            raise ValueError(f"Unsupported workflow definition update fields: {invalid_csv}")
+
+        for field in allowed_fields:
+            if field in updates:
+                setattr(definition, field, updates[field])
+        self._session(db).flush()
+        return definition
+
+    def soft_delete(
+        self,
+        db: Session | None,
+        *,
+        business_id: UUID,
+        definition_id: UUID,
+        deleted_at: datetime | None = None,
+    ) -> WorkflowDefinition | None:
+        definition = self.get(db, business_id, definition_id)
+        if definition is None:
+            return None
+
+        definition.deleted_at = deleted_at or datetime.now(timezone.utc)
+        definition.is_active = False
+        self._session(db).flush()
+        return definition
 
 
 class WorkflowActionRepository(BaseRepository[WorkflowAction]):

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, customers, events, leads, tasks, workflows
+from app.api import auth, customers, events, leads, tasks, workflow_definitions, workflows
 from app.core.config import settings
 from app.core.exception_handlers import unhandled_exception_handler
 from app.dependencies import get_current_user
@@ -75,6 +75,7 @@ app.include_router(tasks.router)
 
 # Automation routes (auth required)
 app.include_router(workflows.router)
+app.include_router(workflow_definitions.router)
 
 
 # ============================================================================

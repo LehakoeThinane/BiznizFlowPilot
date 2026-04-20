@@ -7,7 +7,11 @@ from app.workflow_engine.action_config import (
     parse_action_config,
 )
 from app.workflow_engine.action_handlers import ActionHandler, ActionHandlerRegistry
-from app.workflow_engine.definition_provider import DefinitionProvider, InMemoryDefinitionProvider
+from app.workflow_engine.definition_provider import (
+    DatabaseDefinitionProvider,
+    DefinitionProvider,
+    InMemoryDefinitionProvider,
+)
 from app.workflow_engine.dispatcher import WorkflowDispatcher
 from app.workflow_engine.executor import WorkflowExecutor
 from app.workflow_engine.registry import build_default_action_registry
@@ -17,6 +21,7 @@ __all__ = [
     "ActionHandlerRegistry",
     "ActionResult",
     "BaseActionConfig",
+    "DatabaseDefinitionProvider",
     "DefinitionProvider",
     "InMemoryDefinitionProvider",
     "RetryPolicy",
