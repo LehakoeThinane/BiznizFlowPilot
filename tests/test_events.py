@@ -4,10 +4,12 @@ import pytest
 from uuid import uuid4
 from sqlalchemy.orm import Session
 
+from app.core.enums import EventStatus, EventType
 from app.models.event import Event
-from app.services.event import EventService
-from app.schemas.event import EventCreate
+from app.repositories.event import EventRepository
 from app.schemas.auth import CurrentUser
+from app.schemas.event import EventCreate
+from app.services.event import EventService
 
 
 class TestEventCreate:
@@ -17,7 +19,7 @@ class TestEventCreate:
         """Service can create events."""
         service = EventService(test_db)
         data = EventCreate(
-            event_type="lead_created",
+            event_type=EventType.LEAD_CREATED,
             entity_type="lead",
             entity_id=uuid4(),
             description="New lead from web form",
@@ -25,7 +27,7 @@ class TestEventCreate:
 
         event = service.create(owner_user.business_id, owner_user, data)
 
-        assert event.event_type == "lead_created"
+        assert event.event_type == EventType.LEAD_CREATED
         assert event.entity_type == "lead"
         assert event.actor_id == owner_user.user_id
         assert event.business_id == owner_user.business_id
@@ -37,7 +39,7 @@ class TestEventCreate:
 
         event = service.create_event(
             business_id=owner_user.business_id,
-            event_type="task_assigned",
+            event_type=EventType.TASK_ASSIGNED,
             entity_type="task",
             entity_id=entity_id,
             actor_id=owner_user.user_id,
@@ -45,8 +47,8 @@ class TestEventCreate:
             data={"assigned_to": str(uuid4()), "due_date": "2026-05-01"},
         )
 
-        assert event.event_type == "task_assigned"
-        assert event.processed is False
+        assert event.event_type == EventType.TASK_ASSIGNED
+        assert event.status == EventStatus.PENDING
         assert event.data["assigned_to"]
 
 
@@ -58,7 +60,7 @@ class TestEventRead:
         service = EventService(test_db)
         event = service.create_event(
             business_id=owner_user.business_id,
-            event_type="lead_status_changed",
+            event_type=EventType.LEAD_STATUS_CHANGED,
             entity_type="lead",
             entity_id=uuid4(),
         )
@@ -67,7 +69,7 @@ class TestEventRead:
         retrieved = service.get(owner_user.business_id, owner_user, event.id)
 
         assert retrieved.id == event.id
-        assert retrieved.event_type == "lead_status_changed"
+        assert retrieved.event_type == EventType.LEAD_STATUS_CHANGED
 
     def test_list_events(self, test_db: Session, owner_user: CurrentUser):
         """List events."""
@@ -77,7 +79,7 @@ class TestEventRead:
         for i in range(3):
             service.create_event(
                 business_id=owner_user.business_id,
-                event_type="lead_created",
+                event_type=EventType.LEAD_CREATED,
                 entity_type="lead",
                 entity_id=uuid4(),
             )
@@ -96,33 +98,38 @@ class TestEventRead:
         for _ in range(2):
             service.create_event(
                 business_id=owner_user.business_id,
-                event_type="lead_created",
+                event_type=EventType.LEAD_CREATED,
                 entity_type="lead",
                 entity_id=uuid4(),
             )
         service.create_event(
             business_id=owner_user.business_id,
-            event_type="task_completed",
+            event_type=EventType.TASK_COMPLETED,
             entity_type="task",
             entity_id=uuid4(),
         )
         test_db.commit()
 
-        events, total = service.list_by_type(owner_user.business_id, owner_user, "lead_created")
+        events, total = service.list_by_type(owner_user.business_id, owner_user, EventType.LEAD_CREATED)
 
         assert total >= 2
-        assert all(e.event_type == "lead_created" for e in events)
+        assert all(e.event_type == EventType.LEAD_CREATED for e in events)
 
     def test_list_by_entity(self, test_db: Session, owner_user: CurrentUser):
         """List events for specific entity (audit trail)."""
         service = EventService(test_db)
         entity_id = uuid4()
 
-        # Create multiple events for same entity
-        for i in range(3):
+        # Create multiple event types for same entity
+        event_types = [
+            EventType.LEAD_CREATED,
+            EventType.LEAD_STATUS_CHANGED,
+            EventType.TASK_CREATED,
+        ]
+        for event_type in event_types:
             service.create_event(
                 business_id=owner_user.business_id,
-                event_type=f"event_type_{i}",
+                event_type=event_type,
                 entity_type="lead",
                 entity_id=entity_id,
             )
@@ -145,7 +152,7 @@ class TestEventProcessing:
         for _ in range(2):
             service.create_event(
                 business_id=owner_user.business_id,
-                event_type="lead_created",
+                event_type=EventType.LEAD_CREATED,
                 entity_type="lead",
                 entity_id=uuid4(),
             )
@@ -162,7 +169,7 @@ class TestEventProcessing:
         """Staff cannot access unprocessed events."""
         service = EventService(test_db)
 
-        with pytest.raises(ValueError, match="Permission denied"):
+        with pytest.raises(PermissionError, match="cannot view unprocessed events"):
             service.list_unprocessed(staff_user.business_id, staff_user)
 
     def test_mark_processed(self, test_db: Session, owner_user: CurrentUser):
@@ -170,26 +177,63 @@ class TestEventProcessing:
         service = EventService(test_db)
         event = service.create_event(
             business_id=owner_user.business_id,
-            event_type="workflow_triggered",
+            event_type=EventType.WORKFLOW_TRIGGERED,
             entity_type="lead",
             entity_id=uuid4(),
         )
         test_db.commit()
 
         # Initially not processed
-        assert event.processed is False
+        assert event.status == EventStatus.PENDING
 
         # Mark as processed
         updated = service.mark_processed(owner_user.business_id, owner_user, event.id)
 
+        assert updated.status == EventStatus.PROCESSED
         assert updated.processed is True
 
     def test_mark_processed_rbac(self, test_db: Session, staff_user: CurrentUser):
         """Staff cannot mark events as processed."""
         service = EventService(test_db)
 
-        with pytest.raises(ValueError, match="Permission denied"):
+        with pytest.raises(PermissionError, match="cannot mark events as processed"):
             service.mark_processed(staff_user.business_id, staff_user, uuid4())
+
+    def test_claim_process_commit_cycle(self, test_db: Session, owner_user: CurrentUser):
+        """Worker-style claim -> process -> commit flow preserves transaction boundaries."""
+        service = EventService(test_db)
+        repo = EventRepository(test_db)
+
+        event = service.create_event(
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            entity_type="lead",
+            entity_id=uuid4(),
+        )
+        test_db.commit()
+
+        # Claim without commit and ensure rollback returns the event to pending.
+        claimed = repo.claim_oldest_pending(owner_user.business_id, worker_id="worker-1")
+        assert claimed is not None
+        assert claimed.status == EventStatus.PROCESSING
+        assert claimed.claimed_by == "worker-1"
+        test_db.rollback()
+
+        rolled_back = repo.get(owner_user.business_id, event.id)
+        assert rolled_back.status == EventStatus.PENDING
+        assert rolled_back.claimed_by is None
+        assert rolled_back.locked_at is None
+
+        # Claim again, process, then commit once for the full worker cycle.
+        claimed = repo.claim_oldest_pending(owner_user.business_id, worker_id="worker-1")
+        claimed.status = EventStatus.PROCESSED
+        claimed.claimed_by = None
+        claimed.locked_at = None
+        test_db.commit()
+
+        processed = repo.get(owner_user.business_id, event.id)
+        assert processed.status == EventStatus.PROCESSED
+        assert processed.processed is True
 
 
 class TestAuditTrail:
@@ -203,14 +247,14 @@ class TestAuditTrail:
         # Create events for entity
         service.create_event(
             business_id=owner_user.business_id,
-            event_type="lead_created",
+            event_type=EventType.LEAD_CREATED,
             entity_type="lead",
             entity_id=entity_id,
             description="Lead created from web form",
         )
         service.create_event(
             business_id=owner_user.business_id,
-            event_type="lead_status_changed",
+            event_type=EventType.LEAD_STATUS_CHANGED,
             entity_type="lead",
             entity_id=entity_id,
             description="Status changed to contacted",
@@ -236,7 +280,7 @@ class TestEventMultiTenancy:
 
         event = service.create_event(
             business_id=owner_user.business_id,
-            event_type="lead_created",
+            event_type=EventType.LEAD_CREATED,
             entity_type="lead",
             entity_id=entity_id,
         )
@@ -257,7 +301,7 @@ class TestEventMultiTenancy:
         # Owner creates event
         service.create_event(
             business_id=owner_user.business_id,
-            event_type="task_created",
+            event_type=EventType.TASK_CREATED,
             entity_type="task",
             entity_id=uuid4(),
         )
@@ -287,7 +331,7 @@ class TestEventData:
 
         event = service.create_event(
             business_id=owner_user.business_id,
-            event_type="lead_status_changed",
+            event_type=EventType.LEAD_STATUS_CHANGED,
             entity_type="lead",
             entity_id=uuid4(),
             data=metadata,

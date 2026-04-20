@@ -1,8 +1,9 @@
 """Event model - audit and workflow trigger tracking."""
 
-from sqlalchemy import Column, String, Boolean, JSON, ForeignKey, Text
+from sqlalchemy import Column, DateTime, Enum as SAEnum, JSON, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 
+from app.core.enums import EventStatus, EventType
 from app.models.base import BaseModel
 
 
@@ -32,10 +33,10 @@ class Event(BaseModel):
     )
 
     event_type = Column(
-        String(100),
+        SAEnum(EventType, name="event_type_enum"),
         nullable=False,
         index=True,
-        doc="Event type: lead_created, lead_status_changed, task_created, task_assigned, task_completed",
+        doc="Canonical event type for workflow triggers",
     )
 
     entity_type = Column(
@@ -64,13 +65,34 @@ class Event(BaseModel):
         doc="Event metadata (old status, new status, assigned user, etc.)",
     )
 
-    processed = Column(
-        Boolean,
-        default=False,
+    status = Column(
+        SAEnum(EventStatus, name="event_status"),
+        nullable=False,
+        default=EventStatus.PENDING,
+        server_default=EventStatus.PENDING.value,
         index=True,
-        doc="Whether this event has been processed by workflow engine",
+        doc="Workflow processing state: pending, processing, processed, failed",
+    )
+
+    locked_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        doc="When a worker claimed this event",
+    )
+
+    claimed_by = Column(
+        String(255),
+        nullable=True,
+        index=True,
+        doc="Worker identifier that claimed this event",
     )
 
     def __repr__(self) -> str:
         """String representation."""
-        return f"<Event id={self.id} type='{self.event_type}' processed={self.processed}>"
+        return f"<Event id={self.id} type='{self.event_type}' status='{self.status}'>"
+
+    @property
+    def processed(self) -> bool:
+        """Backward-compatible processed flag derived from status."""
+        return self.status == EventStatus.PROCESSED

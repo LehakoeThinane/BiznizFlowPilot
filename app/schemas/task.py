@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskBase(BaseModel):
@@ -40,15 +40,13 @@ class TaskUpdate(BaseModel):
 class TaskResponse(TaskBase):
     """Task response."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     business_id: UUID
     completed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 class TaskListResponse(BaseModel):
     """List of tasks response."""

@@ -112,7 +112,7 @@ def owner_user(test_db: Session, owner_business: Business) -> CurrentUser:
         id=uuid4(),
         business_id=owner_business.id,
         email="owner@test.com",
-        password_hash=hash_password("password123"),
+        hashed_password=hash_password("password123"),
         first_name="Owner",
         last_name="User",
         role="owner",
@@ -137,7 +137,7 @@ def manager_user(test_db: Session, owner_business: Business) -> CurrentUser:
         id=uuid4(),
         business_id=owner_business.id,
         email="manager@test.com",
-        password_hash=hash_password("password123"),
+        hashed_password=hash_password("password123"),
         first_name="Manager",
         last_name="User",
         role="manager",
@@ -162,7 +162,7 @@ def staff_user(test_db: Session, owner_business: Business) -> CurrentUser:
         id=uuid4(),
         business_id=owner_business.id,
         email="staff@test.com",
-        password_hash=hash_password("password123"),
+        hashed_password=hash_password("password123"),
         first_name="Staff",
         last_name="User",
         role="staff",
@@ -187,7 +187,7 @@ def other_user(test_db: Session, other_business: Business) -> CurrentUser:
         id=uuid4(),
         business_id=other_business.id,
         email="other@test.com",
-        password_hash=hash_password("password123"),
+        hashed_password=hash_password("password123"),
         first_name="Other",
         last_name="User",
         role="owner",
@@ -251,3 +251,50 @@ def sample_task(test_db: Session, owner_business: Business, sample_lead: Lead) -
     test_db.add(task)
     test_db.commit()
     return task
+
+
+# ============================================================================
+# Workflow Test Compatibility Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def db(test_db: Session) -> Session:
+    """Alias fixture for modules expecting `db`."""
+    return test_db
+
+
+@pytest.fixture
+def business_id(owner_business: Business):
+    """Business ID fixture expected by workflow tests."""
+    return owner_business.id
+
+
+@pytest.fixture
+def other_business_id(other_business: Business):
+    """Other business ID fixture expected by workflow tests."""
+    return other_business.id
+
+
+@pytest.fixture
+def owner(owner_user: CurrentUser) -> dict:
+    """Dictionary wrapper expected by workflow tests."""
+    return {"user": owner_user}
+
+
+@pytest.fixture
+def manager(manager_user: CurrentUser) -> dict:
+    """Dictionary wrapper expected by workflow tests."""
+    return {"user": manager_user}
+
+
+@pytest.fixture
+def staff(staff_user: CurrentUser) -> dict:
+    """Dictionary wrapper expected by workflow tests."""
+    return {"user": staff_user}
+
+
+@pytest.fixture
+def other_owner(other_user: CurrentUser) -> dict:
+    """Dictionary wrapper for user in another business."""
+    return {"user": other_user}

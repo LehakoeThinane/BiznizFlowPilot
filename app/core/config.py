@@ -1,13 +1,34 @@
 """Application configuration and settings."""
 
 from functools import lru_cache
-from typing import Optional
+from typing import Any
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
+
+
+class CommaSeparatedDotEnvSettingsSource(DotEnvSettingsSource):
+    """Support comma-separated CORS origins in .env files."""
+
+    def prepare_field_value(self, field_name: str, field: Any, value: Any, value_is_complex: bool) -> Any:
+        if field_name == "cors_origins" and isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return []
+            if raw.startswith("["):
+                return super().prepare_field_value(field_name, field, value, value_is_complex)
+            return [origin.strip() for origin in raw.split(",") if origin.strip()]
+        return super().prepare_field_value(field_name, field, value, value_is_complex)
 
 
 class Settings(BaseSettings):
     """Application settings from environment variables."""
+
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
     # App
     app_name: str = "BiznizFlowPilot"
@@ -35,19 +56,34 @@ class Settings(BaseSettings):
 
     # Redis (for future use)
     redis_url: str = "redis://localhost:6379/0"
+    celery_broker_url: str = "redis://localhost:6379/1"
+    celery_result_backend: str = "redis://localhost:6379/2"
 
     # Pagination
     default_page_size: int = 20
     max_page_size: int = 100
+    audit_trail_default_limit: int = 100
+    audit_trail_max_limit: int = 500
 
     # Logging
     log_level: str = "INFO"
 
-    class Config:
-        """Pydantic config."""
-
-        env_file = ".env"
-        case_sensitive = False
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Customize settings parsing to support CSV-style CORS origins."""
+        return (
+            init_settings,
+            env_settings,
+            CommaSeparatedDotEnvSettingsSource(settings_cls),
+            file_secret_settings,
+        )
 
 
 @lru_cache()

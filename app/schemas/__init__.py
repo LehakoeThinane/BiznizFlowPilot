@@ -2,10 +2,20 @@
 
 from app.schemas.auth import CurrentUser, LoginRequest, RegisterRequest, TokenResponse, UserResponse
 from app.schemas.customer import CustomerCreate, CustomerListResponse, CustomerResponse, CustomerUpdate
-from app.schemas.event import EventCreate, EventListResponse, EventResponse, EventUpdate
+from app.schemas.event import EventAuditTrailResponse, EventCreate, EventListResponse, EventResponse
 from app.schemas.lead import LeadCreate, LeadListResponse, LeadResponse, LeadUpdate
 from app.schemas.task import TaskCreate, TaskListResponse, TaskResponse, TaskUpdate
 from app.schemas.user import UserCreate, UserListResponse, UserResponse, UserUpdate
+from app.schemas.workflow import (
+    WorkflowCreate,
+    WorkflowResponse,
+    WorkflowUpdate,
+    WorkflowListResponse,
+    WorkflowActionCreate,
+    WorkflowActionResponse,
+    WorkflowRunResponse,
+    WorkflowRunListResponse,
+)
 
 __all__ = [
     # Auth
@@ -21,9 +31,9 @@ __all__ = [
     "CustomerListResponse",
     # Event
     "EventCreate",
-    "EventUpdate",
     "EventResponse",
     "EventListResponse",
+    "EventAuditTrailResponse",
     # Lead
     "LeadCreate",
     "LeadUpdate",
@@ -38,4 +48,13 @@ __all__ = [
     "UserCreate",
     "UserUpdate",
     "UserListResponse",
+    # Workflow
+    "WorkflowCreate",
+    "WorkflowResponse",
+    "WorkflowUpdate",
+    "WorkflowListResponse",
+    "WorkflowActionCreate",
+    "WorkflowActionResponse",
+    "WorkflowRunResponse",
+    "WorkflowRunListResponse",
 ]

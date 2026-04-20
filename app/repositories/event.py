@@ -1,9 +1,11 @@
 """Event repository - data access layer."""
 
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.core.enums import EventStatus, EventType
 from app.models.event import Event
 from app.repositories.base import BaseRepository
 
@@ -18,7 +20,9 @@ class EventRepository(BaseRepository[Event]):
         """Initialize repository."""
         super().__init__(db, Event)
 
-    def get_by_event_type(self, business_id: UUID, event_type: str, skip: int = 0, limit: int = 100) -> list[Event]:
+    def get_by_event_type(
+        self, business_id: UUID, event_type: EventType, skip: int = 0, limit: int = 100
+    ) -> list[Event]:
         """Get events by type within business.
         
         🧨 CRITICAL: Filters by business_id to prevent data leaks.
@@ -28,7 +32,7 @@ class EventRepository(BaseRepository[Event]):
             Event.event_type == event_type,
         ).order_by(Event.created_at.desc()).offset(skip).limit(limit).all()
 
-    def count_by_event_type(self, business_id: UUID, event_type: str) -> int:
+    def count_by_event_type(self, business_id: UUID, event_type: EventType) -> int:
         """Count events by type within business.
         
         🧨 CRITICAL: Filters by business_id.
@@ -67,7 +71,7 @@ class EventRepository(BaseRepository[Event]):
         """
         return self.db.query(Event).filter(
             Event.business_id == business_id,
-            Event.processed == False,
+            Event.status == EventStatus.PENDING,
         ).order_by(Event.created_at.asc()).offset(skip).limit(limit).all()
 
     def count_unprocessed(self, business_id: UUID) -> int:
@@ -77,7 +81,7 @@ class EventRepository(BaseRepository[Event]):
         """
         return self.db.query(Event).filter(
             Event.business_id == business_id,
-            Event.processed == False,
+            Event.status == EventStatus.PENDING,
         ).count()
 
     def get_by_actor(self, business_id: UUID, actor_id: UUID, skip: int = 0, limit: int = 100) -> list[Event]:
@@ -99,3 +103,52 @@ class EventRepository(BaseRepository[Event]):
             Event.business_id == business_id,
             Event.actor_id == actor_id,
         ).count()
+
+    def claim_oldest_pending(self, business_id: UUID, worker_id: str) -> Event | None:
+        """Claim the oldest pending event for processing.
+        
+        Caller owns transaction boundaries and commit/rollback.
+        """
+        event = (
+            self.db.query(Event)
+            .filter(
+                Event.business_id == business_id,
+                Event.status == EventStatus.PENDING,
+            )
+            .order_by(Event.created_at.asc())
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+        if not event:
+            return None
+
+        event.status = EventStatus.PROCESSING
+        event.locked_at = datetime.now(timezone.utc)
+        event.claimed_by = worker_id
+        self.db.flush()
+        return event
+
+    def release_stale_claims(self, business_id: UUID, stale_after_minutes: int = 10) -> int:
+        """Release events stuck in processing past the staleness threshold.
+        
+        Caller owns transaction boundaries and commit/rollback.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_after_minutes)
+        rows_updated = (
+            self.db.query(Event)
+            .filter(
+                Event.business_id == business_id,
+                Event.status == EventStatus.PROCESSING,
+                Event.locked_at.is_not(None),
+                Event.locked_at < cutoff,
+            )
+            .update(
+                {
+                    Event.status: EventStatus.PENDING,
+                    Event.locked_at: None,
+                    Event.claimed_by: None,
+                },
+                synchronize_session=False,
+            )
+        )
+        return int(rows_updated or 0)

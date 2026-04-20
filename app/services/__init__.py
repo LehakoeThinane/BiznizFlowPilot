@@ -5,6 +5,7 @@ from app.services.customer import CustomerService
 from app.services.event import EventService
 from app.services.lead import LeadService
 from app.services.task import TaskService
+from app.services.workflow import WorkflowService
 
 __all__ = [
     "AuthService",
@@ -12,4 +13,5 @@ __all__ = [
     "EventService",
     "LeadService",
     "TaskService",
+    "WorkflowService",
 ]

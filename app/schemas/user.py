@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserCreate(BaseModel):
@@ -26,6 +26,8 @@ class UserUpdate(BaseModel):
 class UserResponse(BaseModel):
     """User response."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     business_id: UUID
     email: str
@@ -33,12 +35,6 @@ class UserResponse(BaseModel):
     last_name: str
     role: str
     is_active: bool
-
-    class Config:
-        """Pydantic config."""
-
-        from_attributes = True
-
 
 class UserListResponse(BaseModel):
     """Paginated user list response."""

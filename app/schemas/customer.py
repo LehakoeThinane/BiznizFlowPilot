@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class CustomerBase(BaseModel):
@@ -36,14 +36,12 @@ class CustomerUpdate(BaseModel):
 class CustomerResponse(CustomerBase):
     """Customer response."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     business_id: UUID
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 class CustomerListResponse(BaseModel):
     """List of customers response."""
