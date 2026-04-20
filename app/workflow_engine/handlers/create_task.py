@@ -6,6 +6,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.enums import ActionFailureType
@@ -91,7 +92,10 @@ class CreateTaskHandler(ActionHandler):
             try:
                 lead_id = UUID(str(entity_id_raw))
             except ValueError:
-                pass  # Fallback to no linkage rather than failing if not strictly a UUID
+                logger.warning(
+                    "CreateTaskHandler: invalid entity_id '%s' in context, skipping lead linkage",
+                    entity_id_raw,
+                )
 
         try:
             task = Task(
@@ -111,11 +115,27 @@ class CreateTaskHandler(ActionHandler):
                 message=f"Created task: {rendered_title}",
                 data={"task_id": str(task.id)},
             )
-        except Exception as e:
-            logger.exception("Database error while creating task from workflow action")
-            # Usually persistence failures are intermittent depending on locks/db health, thus retryable
+        except IntegrityError as e:
+            db.rollback()
+            logger.exception("Constraint violation while creating task from workflow action")
             return ActionResult(
                 status="failure",
-                message=f"Persistence error: {str(e)}",
+                message=f"Constraint violation creating task: {e}",
+                failure_type=ActionFailureType.TERMINAL,
+            )
+        except OperationalError as e:
+            db.rollback()
+            logger.exception("Database operational error while creating task from workflow action")
+            return ActionResult(
+                status="failure",
+                message=f"Database error creating task: {e}",
                 failure_type=ActionFailureType.RETRYABLE,
+            )
+        except Exception as e:
+            db.rollback()
+            logger.exception("Unexpected error while creating task from workflow action")
+            return ActionResult(
+                status="failure",
+                message=f"Unexpected error creating task: {e}",
+                failure_type=ActionFailureType.TERMINAL,
             )

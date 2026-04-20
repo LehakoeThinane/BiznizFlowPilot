@@ -15,6 +15,15 @@ class Customer(BaseModel):
 
     __tablename__ = "customers"
 
+    SAFE_CONTEXT_FIELDS = {
+        "id",
+        "name",
+        "email",
+        "phone",
+        "company",
+        "notes",
+    }
+
     business_id = Column(
         UUID(as_uuid=True),
         nullable=False,

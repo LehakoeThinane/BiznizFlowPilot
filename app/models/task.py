@@ -18,6 +18,18 @@ class Task(BaseModel):
 
     __tablename__ = "tasks"
 
+    SAFE_CONTEXT_FIELDS = {
+        "id",
+        "lead_id",
+        "assigned_to",
+        "title",
+        "description",
+        "status",
+        "priority",
+        "due_date",
+        "completed_at",
+    }
+
     business_id = Column(
         UUID(as_uuid=True),
         nullable=False,

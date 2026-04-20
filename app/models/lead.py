@@ -15,6 +15,15 @@ class Lead(BaseModel):
 
     __tablename__ = "leads"
 
+    SAFE_CONTEXT_FIELDS = {
+        "id",
+        "assigned_to",
+        "status",
+        "source",
+        "value",
+        "notes",
+    }
+
     business_id = Column(
         UUID(as_uuid=True),
         nullable=False,
