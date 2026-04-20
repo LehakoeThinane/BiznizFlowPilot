@@ -1,5 +1,7 @@
 """Celery application wiring."""
 
+from datetime import timedelta
+
 from celery import Celery
 
 from app.core.config import settings
@@ -16,6 +18,22 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
+    beat_schedule={
+        "release-stale-event-claims": {
+            "task": "ops.release_stale_event_claims",
+            "schedule": timedelta(seconds=60),
+            "args": (10,),
+        },
+        "requeue-due-action-retries": {
+            "task": "ops.requeue_due_action_retries",
+            "schedule": timedelta(seconds=60),
+        },
+        "release-stale-workflow-runs": {
+            "task": "ops.release_stale_workflow_runs",
+            "schedule": timedelta(seconds=300),
+            "args": (30,),
+        },
+    },
 )
 
 celery_app.autodiscover_tasks(["app.workers"])

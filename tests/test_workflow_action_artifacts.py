@@ -87,6 +87,7 @@ class TestActionHandlerRegistryArtifacts:
 
         resolved = registry.get("log")
         assert isinstance(resolved, LogActionHandler)
+        assert registry.supports("webhook") is True
 
     def test_log_action_handler_returns_success_result(self, test_db):
         handler = LogActionHandler()

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+import httpx
 from sqlalchemy.orm import Session
 
 from app.core.enums import ActionFailureType, EventType, WorkflowActionStatus, WorkflowRunStatus
@@ -13,6 +14,7 @@ from app.services.event import EventService
 from app.workflow_engine import InMemoryDefinitionProvider, WorkflowDispatcher, WorkflowExecutor
 from app.workflow_engine.action_config import ActionResult, BaseActionConfig
 from app.workflow_engine.action_handlers import ActionHandler, ActionHandlerRegistry
+from app.workers import recovery as recovery_tasks
 
 
 class _RetryableLogFailureHandler(ActionHandler):
@@ -54,6 +56,18 @@ class _ProgrammableLogHandler(ActionHandler):
             data={"ok": True},
             failure_type=None,
         )
+
+
+class _FixedSessionContext:
+    def __init__(self, session: Session):
+        self._session = session
+
+    def __enter__(self) -> Session:
+        return self._session
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        _ = exc_type, exc, tb
+        return False
 
 
 class TestWorkflowExecutorDispatch:
@@ -290,6 +304,108 @@ class TestWorkflowExecutorDispatch:
         assert result["retry_scheduled_count"] == 0
         assert refreshed_run.status == WorkflowRunStatus.RUNNING
         assert refreshed_action.status == WorkflowActionStatus.RETRY_SCHEDULED
+
+    def test_webhook_retry_chain_requeue_then_success(
+        self,
+        test_db: Session,
+        owner_user,
+        monkeypatch,
+    ):
+        event_service = EventService(test_db)
+        event = event_service.create_event(
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            entity_type="lead",
+            entity_id=uuid4(),
+            actor_id=owner_user.user_id,
+        )
+
+        definition = WorkflowDefinition(
+            id=uuid4(),
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            is_active=True,
+            name="Webhook Retry Chain",
+            config={
+                "actions": [
+                    {
+                        "action_type": "webhook",
+                        "url": "https://example.test/hooks",
+                        "method": "POST",
+                        "payload_template": {"kind": "test"},
+                        "retry_policy": {
+                            "max_attempts": 2,
+                            "initial_delay_seconds": 1,
+                            "backoff_multiplier": 1.0,
+                            "max_delay_seconds": 60,
+                        },
+                    }
+                ]
+            },
+        )
+        test_db.add(definition)
+        test_db.commit()
+
+        run = WorkflowDispatcher(
+            db=test_db,
+            definition_provider=InMemoryDefinitionProvider([definition]),
+        ).dispatch(event)[0]
+        test_db.commit()
+
+        request_counter = {"count": 0}
+
+        class _FakeResponse:
+            def __init__(self, status_code: int, text: str = ""):
+                self.status_code = status_code
+                self.text = text
+
+        def _fake_request(*, method, url, headers=None, json=None, timeout=None):
+            _ = method, url, headers, json, timeout
+            request_counter["count"] += 1
+            if request_counter["count"] == 1:
+                raise httpx.ReadTimeout("timeout")
+            return _FakeResponse(status_code=200, text="ok")
+
+        monkeypatch.setattr("app.workflow_engine.handlers.webhook_handler.httpx.request", _fake_request)
+
+        first_result = WorkflowExecutor(test_db).execute_next_run(owner_user.business_id)
+        test_db.commit()
+
+        action = (
+            test_db.query(WorkflowAction)
+            .filter(WorkflowAction.run_id == run.id)
+            .order_by(WorkflowAction.execution_order.asc())
+            .first()
+        )
+        assert first_result["run_status"] == WorkflowRunStatus.RUNNING.value
+        assert first_result["retry_scheduled_count"] == 1
+        assert action.status == WorkflowActionStatus.RETRY_SCHEDULED
+        assert action.failure_type == ActionFailureType.RETRYABLE
+        assert action.attempt_count == 1
+
+        action.next_retry_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        test_db.commit()
+
+        monkeypatch.setattr(
+            recovery_tasks,
+            "SessionLocal",
+            lambda: _FixedSessionContext(test_db),
+        )
+        requeue_result = recovery_tasks.requeue_due_action_retries_task.run()
+        assert requeue_result == {"status": "ok", "rows_affected": 1}
+
+        second_result = WorkflowExecutor(test_db).execute_next_run(owner_user.business_id)
+        test_db.commit()
+
+        refreshed_run = test_db.query(WorkflowRun).filter(WorkflowRun.id == run.id).first()
+        refreshed_action = test_db.query(WorkflowAction).filter(WorkflowAction.id == action.id).first()
+
+        assert second_result["run_status"] == WorkflowRunStatus.COMPLETED.value
+        assert second_result["executed_action_count"] == 1
+        assert refreshed_run.status == WorkflowRunStatus.COMPLETED
+        assert refreshed_action.status == WorkflowActionStatus.COMPLETED
+        assert refreshed_action.attempt_count == 1
+        assert request_counter["count"] == 2
 
     def test_execute_next_run_marks_run_failed_on_terminal_failure(self, test_db: Session, owner_user):
         event_service = EventService(test_db)
