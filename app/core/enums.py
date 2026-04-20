@@ -21,6 +21,25 @@ class WorkflowRunStatus(str, Enum):
     FAILED = "failed"
 
 
+class WorkflowActionStatus(str, Enum):
+    """Execution state for materialized workflow actions."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    RETRY_SCHEDULED = "retry_scheduled"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class ActionFailureType(str, Enum):
+    """Failure categories aligned to retry behavior in the executor."""
+
+    RETRYABLE = "retryable"
+    TERMINAL = "terminal"
+    SKIPPABLE = "skippable"
+
+
 class EventType(str, Enum):
     """Canonical event types emitted by business actions."""
 

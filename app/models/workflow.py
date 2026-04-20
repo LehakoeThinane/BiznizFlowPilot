@@ -24,7 +24,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
-from app.core.enums import EventType, WorkflowRunStatus
+from app.core.enums import ActionFailureType, EventType, WorkflowActionStatus, WorkflowRunStatus
 from app.models.base import BaseModel
 
 
@@ -116,43 +116,69 @@ class WorkflowDefinition(BaseModel):
 
 
 class WorkflowAction(BaseModel):
-    """Individual actions within a workflow.
+    """Materialized action rows associated with workflow definitions and runs.
 
-    Actions execute in order and can:
-    - Send notifications
-    - Update entity state
-    - Trigger external webhooks
-    - Create follow-up tasks
-
-    Attributes:
-        workflow_id: Parent workflow
-        action_type: Type of action (e.g., 'send_email', 'create_task', 'update_lead')
-        parameters: JSON config for action execution
-        order: Execution sequence within workflow
+    The model supports both:
+    - legacy definition-time action storage via workflow_id/order/parameters
+    - run-time materialized actions via run_id/execution_order/status/result
     """
 
     __tablename__ = "workflow_actions"
 
+    # Legacy bridge to definition-time workflow actions.
     workflow_id = Column(
         PG_UUID(as_uuid=True),
         ForeignKey("workflows.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+    # Run-level materialization target for Phase 5.
+    run_id = Column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
     )
     action_type = Column(String(100), nullable=False)
+    # Legacy bridge only. Phase 5+ execution must read config_snapshot instead.
     parameters = Column(JSON, default=dict, nullable=False)
-    order = Column(Integer, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+    order = Column(Integer, nullable=True)  # legacy definition order
+    execution_order = Column(Integer, nullable=True, index=True)
+
+    status = Column(
+        SAEnum(WorkflowActionStatus, name="workflow_action_status"),
         nullable=False,
+        default=WorkflowActionStatus.PENDING,
+        server_default=WorkflowActionStatus.PENDING.value,
+        index=True,
     )
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-        nullable=False,
+    result = Column(JSON, default=dict, nullable=False)
+    executed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    error = Column(Text, nullable=True)
+    failure_type = Column(
+        SAEnum(ActionFailureType, name="workflow_action_failure_type"),
+        nullable=True,
+        index=True,
     )
+
+    attempt_count = Column(Integer, nullable=False, default=0, server_default="0")
+    max_attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    next_retry_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
+    continue_on_failure = Column(Boolean, nullable=False, default=False, server_default="false")
+    enabled = Column(Boolean, nullable=False, default=True, server_default="true")
+    timeout_seconds = Column(Integer, nullable=True)
+    # Canonical action payload for Phase 5+ execution (validated at dispatch).
+    config_snapshot = Column(JSON, default=dict, nullable=False)
+
+    @property
+    def effective_execution_order(self) -> int:
+        """Resolve execution order across legacy and run-time action rows."""
+        if self.execution_order is not None:
+            return self.execution_order
+        if self.order is not None:
+            return self.order
+        return 0
 
 
 class WorkflowRun(BaseModel):

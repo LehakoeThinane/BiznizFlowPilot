@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.core.enums import EventType, WorkflowRunStatus
+from app.core.enums import WorkflowActionStatus, WorkflowRunStatus, EventType
 from app.models import Workflow, WorkflowAction, WorkflowDefinition, WorkflowRun
 from app.repositories.base import BaseRepository
 
@@ -168,6 +169,149 @@ class WorkflowActionRepository(BaseRepository[WorkflowAction]):
         session.commit()
         return int(deleted or 0)
 
+    def get_by_run(self, db: Session | None, run_id: UUID) -> List[WorkflowAction]:
+        """Get materialized actions for a run in execution order."""
+        session = self._session(db)
+        return (
+            session.query(WorkflowAction)
+            .filter(WorkflowAction.run_id == run_id)
+            .order_by(WorkflowAction.execution_order.asc(), WorkflowAction.created_at.asc())
+            .all()
+        )
+
+    def get_pending_for_run(self, db: Session, run_id: UUID) -> List[WorkflowAction]:
+        """Get enabled pending actions for a run in execution order.
+
+        `created_at` is a defensive tie-breaker only. Under normal dispatch
+        materialization, execution_order is unique per run.
+        """
+        return (
+            db.query(WorkflowAction)
+            .filter(
+                WorkflowAction.run_id == run_id,
+                WorkflowAction.enabled.is_(True),
+                WorkflowAction.status == WorkflowActionStatus.PENDING,
+            )
+            .order_by(WorkflowAction.execution_order.asc(), WorkflowAction.created_at.asc())
+            .all()
+        )
+
+    def requeue_due_retries(self, db: Session, run_id: UUID, as_of: datetime | None = None) -> int:
+        """Move due retry-scheduled actions back to pending for execution."""
+        now = as_of or datetime.now(timezone.utc)
+        rows_updated = (
+            db.query(WorkflowAction)
+            .filter(
+                WorkflowAction.run_id == run_id,
+                WorkflowAction.enabled.is_(True),
+                WorkflowAction.status == WorkflowActionStatus.RETRY_SCHEDULED,
+                WorkflowAction.next_retry_at.is_not(None),
+                WorkflowAction.next_retry_at <= now,
+            )
+            .update(
+                {
+                    WorkflowAction.status: WorkflowActionStatus.PENDING,
+                    WorkflowAction.next_retry_at: None,
+                },
+                synchronize_session=False,
+            )
+        )
+        db.flush()
+        return int(rows_updated or 0)
+
+    def has_retry_scheduled_for_run(self, db: Session, run_id: UUID) -> bool:
+        """Check whether a run still has enabled actions waiting on retry."""
+        return (
+            db.query(WorkflowAction)
+            .filter(
+                WorkflowAction.run_id == run_id,
+                WorkflowAction.enabled.is_(True),
+                WorkflowAction.status == WorkflowActionStatus.RETRY_SCHEDULED,
+            )
+            .first()
+            is not None
+        )
+
+    def requeue_due_retries_for_business(
+        self,
+        db: Session,
+        business_id: UUID,
+        as_of: datetime | None = None,
+    ) -> int:
+        """Move due retry-scheduled actions to pending for all runs in a business."""
+        now = as_of or datetime.now(timezone.utc)
+        due_action_ids = [
+            action_id
+            for (action_id,) in (
+                db.query(WorkflowAction.id)
+                .join(WorkflowRun, WorkflowAction.run_id == WorkflowRun.id)
+                .filter(
+                    WorkflowRun.business_id == business_id,
+                    WorkflowAction.enabled.is_(True),
+                    WorkflowAction.status == WorkflowActionStatus.RETRY_SCHEDULED,
+                    WorkflowAction.next_retry_at.is_not(None),
+                    WorkflowAction.next_retry_at <= now,
+                )
+                .all()
+            )
+        ]
+        if not due_action_ids:
+            return 0
+
+        (
+            db.query(WorkflowAction)
+            .filter(WorkflowAction.id.in_(due_action_ids))
+            .update(
+                {
+                    WorkflowAction.status: WorkflowActionStatus.PENDING,
+                    WorkflowAction.next_retry_at: None,
+                },
+                synchronize_session=False,
+            )
+        )
+        db.flush()
+        return len(due_action_ids)
+
+    def create_for_run(
+        self,
+        db: Session,
+        *,
+        run_id: UUID,
+        workflow_id: UUID | None,
+        action_type: str,
+        execution_order: int,
+        config_snapshot: dict[str, Any],
+        parameters: dict[str, Any] | None = None,
+        continue_on_failure: bool = False,
+        enabled: bool = True,
+        timeout_seconds: int | None = None,
+        max_attempts: int = 0,
+    ) -> WorkflowAction:
+        """Materialize one workflow action row for a run without committing."""
+        session = db
+        action = WorkflowAction(
+            run_id=run_id,
+            workflow_id=workflow_id,
+            action_type=action_type,
+            parameters=parameters or {},
+            order=execution_order,
+            execution_order=execution_order,
+            status=WorkflowActionStatus.PENDING,
+            result={},
+            error=None,
+            failure_type=None,
+            attempt_count=0,
+            max_attempts=max_attempts,
+            next_retry_at=None,
+            continue_on_failure=continue_on_failure,
+            enabled=enabled,
+            timeout_seconds=timeout_seconds,
+            config_snapshot=config_snapshot,
+        )
+        session.add(action)
+        session.flush()
+        return action
+
 
 class WorkflowRunRepository(BaseRepository[WorkflowRun]):
     """Workflow run repository with multi-tenant enforcement."""
@@ -244,6 +388,59 @@ class WorkflowRunRepository(BaseRepository[WorkflowRun]):
 
     def get_failed(self, db: Session | None, business_id: UUID, limit: int = 100) -> List[WorkflowRun]:
         return self.get_by_status(db, business_id, WorkflowRunStatus.FAILED, limit)
+
+    def claim_oldest_queued(self, db: Session, business_id: UUID) -> WorkflowRun | None:
+        """Claim the oldest queued run for execution.
+
+        Caller owns transaction boundaries and commit/rollback.
+        Note: skip_locked behavior is exercised in PostgreSQL. SQLite-based
+        tests validate query shape, not lock semantics.
+        """
+        run = (
+            db.query(WorkflowRun)
+            .filter(
+                WorkflowRun.business_id == business_id,
+                WorkflowRun.status == WorkflowRunStatus.QUEUED,
+            )
+            .order_by(WorkflowRun.created_at.asc())
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+        if run is None:
+            return None
+
+        run.status = WorkflowRunStatus.RUNNING
+        db.flush()
+        return run
+
+    def release_stale_runs(
+        self,
+        db: Session,
+        business_id: UUID,
+        stale_after_minutes: int = 30,
+    ) -> int:
+        """Mark stale RUNNING runs as failed for operational recovery.
+
+        Caller owns transaction boundaries and commit/rollback.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_after_minutes)
+        rows_updated = (
+            db.query(WorkflowRun)
+            .filter(
+                WorkflowRun.business_id == business_id,
+                WorkflowRun.status == WorkflowRunStatus.RUNNING,
+                WorkflowRun.updated_at < cutoff,
+            )
+            .update(
+                {
+                    WorkflowRun.status: WorkflowRunStatus.FAILED,
+                    WorkflowRun.error_message: "Run timed out - stale recovery",
+                },
+                synchronize_session=False,
+            )
+        )
+        db.flush()
+        return int(rows_updated or 0)
 
     def create_from_definition(
         self,

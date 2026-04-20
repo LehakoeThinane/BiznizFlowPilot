@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.enums import EventStatus
 from app.core.database import SessionLocal
+from app.repositories.workflow import WorkflowActionRepository
 from app.services.event import EventService
 from app.workflow_engine.definition_provider import DefinitionProvider
 from app.workflow_engine import InMemoryDefinitionProvider, WorkflowDispatcher
@@ -103,4 +104,28 @@ def release_stale_claims_task(business_id: str, stale_after_minutes: int = 10) -
     return {
         "business_id": business_id,
         "released": released,
+    }
+
+
+@celery_app.task(name="workflows.requeue_due_action_retries")
+def requeue_due_action_retries_task(business_id: str) -> dict[str, int | str]:
+    """Periodic task to move due retry-scheduled actions back to pending."""
+    business_uuid = UUID(business_id)
+
+    with SessionLocal() as db:
+        action_repo = WorkflowActionRepository(db)
+        requeued = action_repo.requeue_due_retries_for_business(
+            db=db,
+            business_id=business_uuid,
+        )
+        db.commit()
+
+    logger.info(
+        "Requeued %d due workflow actions for business %s",
+        requeued,
+        business_id,
+    )
+    return {
+        "business_id": business_id,
+        "requeued": requeued,
     }

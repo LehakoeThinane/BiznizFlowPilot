@@ -8,7 +8,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from app.core.enums import EventStatus, EventType, WorkflowRunStatus
-from app.models import WorkflowDefinition, WorkflowRun
+from app.models import WorkflowAction, WorkflowDefinition, WorkflowRun
 from app.repositories.event import EventRepository
 from app.services.event import EventService
 from app.workflow_engine import InMemoryDefinitionProvider, WorkflowDispatcher
@@ -50,6 +50,14 @@ class TestWorkflowDispatcher:
             event_type=EventType.LEAD_CREATED,
             is_active=True,
             name="Lead Created Definition",
+            config={
+                "actions": [
+                    {
+                        "action_type": "log",
+                        "message": "Lead created",
+                    }
+                ]
+            },
         )
         test_db.add(definition)
         test_db.commit()
@@ -65,6 +73,10 @@ class TestWorkflowDispatcher:
         assert runs[0].workflow_definition_id == definition.id
         assert runs[0].status == WorkflowRunStatus.QUEUED
         assert runs[0].definition_snapshot["event_type"] == EventType.LEAD_CREATED.value
+        run_actions = test_db.query(WorkflowAction).filter(WorkflowAction.run_id == runs[0].id).all()
+        assert len(run_actions) == 1
+        assert run_actions[0].action_type == "log"
+        assert run_actions[0].execution_order == 0
 
     def test_dispatch_multiple_matches_creates_multiple_runs(self, test_db: Session, owner_user):
         event_service = EventService(test_db)
@@ -82,6 +94,18 @@ class TestWorkflowDispatcher:
                 event_type=EventType.TASK_CREATED,
                 is_active=True,
                 name="Definition 1",
+                config={
+                    "actions": [
+                        {
+                            "action_type": "log",
+                            "message": "First action",
+                        },
+                        {
+                            "action_type": "log",
+                            "message": "Second action",
+                        },
+                    ]
+                },
             ),
             WorkflowDefinition(
                 id=uuid4(),
@@ -89,6 +113,14 @@ class TestWorkflowDispatcher:
                 event_type=EventType.TASK_CREATED,
                 is_active=True,
                 name="Definition 2",
+                config={
+                    "actions": [
+                        {
+                            "action_type": "log",
+                            "message": "Only action",
+                        }
+                    ]
+                },
             ),
         ]
         test_db.add_all(definitions)
@@ -102,6 +134,8 @@ class TestWorkflowDispatcher:
 
         assert len(runs) == 2
         assert {run.workflow_definition_id for run in runs} == {definition.id for definition in definitions}
+        run_actions = test_db.query(WorkflowAction).filter(WorkflowAction.run_id.in_([run.id for run in runs])).all()
+        assert len(run_actions) == 3
 
     def test_dispatch_skips_inactive_definitions(self, test_db: Session, owner_user):
         event_service = EventService(test_db)
@@ -118,6 +152,14 @@ class TestWorkflowDispatcher:
             event_type=EventType.LEAD_STATUS_CHANGED,
             is_active=True,
             name="Active Definition",
+            config={
+                "actions": [
+                    {
+                        "action_type": "log",
+                        "message": "Active only",
+                    }
+                ]
+            },
         )
         inactive = WorkflowDefinition(
             id=uuid4(),
@@ -153,6 +195,14 @@ class TestWorkflowDispatcher:
             event_type=EventType.TASK_ASSIGNED,
             is_active=True,
             name="Good Definition",
+            config={
+                "actions": [
+                    {
+                        "action_type": "log",
+                        "message": "Good action",
+                    }
+                ]
+            },
         )
         malformed_definition = SimpleNamespace(id=uuid4(), business_id=owner_user.business_id)
 
@@ -183,6 +233,14 @@ class TestWorkflowDispatcher:
             event_type=EventType.TASK_COMPLETED,
             is_active=True,
             name="Completion Definition",
+            config={
+                "actions": [
+                    {
+                        "action_type": "log",
+                        "message": "Run once",
+                    }
+                ]
+            },
         )
         test_db.add(definition)
         test_db.commit()
@@ -209,6 +267,61 @@ class TestWorkflowDispatcher:
         assert len(first_runs) == 1
         assert second_runs == []
         assert len(persisted_runs) == 1
+
+    def test_dispatch_invalid_action_config_rolls_back_definition_savepoint(self, test_db: Session, owner_user):
+        """Invalid action config should skip definition and create no run/actions for it."""
+        event_service = EventService(test_db)
+        event = event_service.create_event(
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            entity_type="lead",
+            entity_id=uuid4(),
+        )
+
+        valid_definition = WorkflowDefinition(
+            id=uuid4(),
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            is_active=True,
+            name="Valid Definition",
+            config={
+                "actions": [
+                    {
+                        "action_type": "log",
+                        "message": "valid",
+                    }
+                ]
+            },
+        )
+        invalid_definition = WorkflowDefinition(
+            id=uuid4(),
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            is_active=True,
+            name="Invalid Definition",
+            config={
+                "actions": [
+                    {
+                        "action_type": "log",
+                        # missing required `message`
+                    }
+                ]
+            },
+        )
+        test_db.add_all([valid_definition, invalid_definition])
+        test_db.commit()
+
+        provider = InMemoryDefinitionProvider([valid_definition, invalid_definition])
+        dispatcher = WorkflowDispatcher(db=test_db, definition_provider=provider)
+
+        runs = dispatcher.dispatch(event)
+        test_db.commit()
+
+        assert len(runs) == 1
+        assert runs[0].workflow_definition_id == valid_definition.id
+        actions = test_db.query(WorkflowAction).filter(WorkflowAction.run_id == runs[0].id).all()
+        assert len(actions) == 1
+        assert actions[0].action_type == "log"
 
 
 class TestWorkerDispatchLoop:

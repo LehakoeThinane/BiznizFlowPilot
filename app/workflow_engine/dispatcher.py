@@ -9,7 +9,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Event, WorkflowRun
-from app.repositories.workflow import WorkflowRunRepository
+from app.repositories.workflow import WorkflowActionRepository, WorkflowRunRepository
+from app.workflow_engine.action_config import parse_action_config
 from app.workflow_engine.definition_provider import DefinitionProvider
 
 
@@ -33,10 +34,12 @@ class WorkflowDispatcher:
         db: Session,
         definition_provider: DefinitionProvider,
         run_repository: WorkflowRunRepository | None = None,
+        action_repository: WorkflowActionRepository | None = None,
     ):
         self.db = db
         self.definition_provider = definition_provider
         self.run_repository = run_repository or WorkflowRunRepository(db)
+        self.action_repository = action_repository or WorkflowActionRepository(db)
 
     def dispatch(self, event: Event) -> list[WorkflowRun]:
         """Create queued workflow runs for definitions matching the event."""
@@ -68,6 +71,7 @@ class WorkflowDispatcher:
                         definition_snapshot=definition_snapshot,
                         workflow_id=getattr(definition, "workflow_id", None),
                     )
+                    self._materialize_actions_for_run(run=run, definition=definition)
                 created_runs.append(run)
             except IntegrityError:
                 logger.info(
@@ -84,3 +88,36 @@ class WorkflowDispatcher:
                 )
 
         return created_runs
+
+    def _materialize_actions_for_run(self, run: WorkflowRun, definition) -> None:
+        """Materialize run-level action rows from definition config."""
+        # Any validation/materialization failure here aborts the entire
+        # definition savepoint. Definitions are all-or-nothing.
+        config = definition.config or {}
+        if not isinstance(config, dict):
+            raise ValueError("Workflow definition config must be an object")
+
+        raw_actions = config.get("actions", [])
+        if raw_actions is None:
+            raw_actions = []
+        if not isinstance(raw_actions, list):
+            raise ValueError("Workflow definition config.actions must be an array")
+
+        for index, raw_action in enumerate(raw_actions):
+            if not isinstance(raw_action, dict):
+                raise ValueError(f"Action config at index {index} must be an object")
+
+            action_config = parse_action_config(raw_action)
+            self.action_repository.create_for_run(
+                db=self.db,
+                run_id=run.id,
+                workflow_id=run.workflow_id,
+                action_type=action_config.action_type,
+                execution_order=index,
+                parameters=raw_action,
+                config_snapshot=action_config.model_dump(),
+                continue_on_failure=action_config.continue_on_failure,
+                enabled=action_config.enabled,
+                timeout_seconds=action_config.timeout_seconds,
+                max_attempts=action_config.retry_policy.max_attempts,
+            )
