@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Iterable, List
 from uuid import UUID
 
 from app.core.enums import EventType
 from app.models import WorkflowDefinition
+
+logger = logging.getLogger(__name__)
 
 
 class DefinitionProvider(ABC):
@@ -51,7 +54,11 @@ class InMemoryDefinitionProvider(DefinitionProvider):
                 if definition_event_type == event_type:
                     matches.append(definition)
             except Exception:
-                # malformed definitions are handled by dispatcher-level logging
-                matches.append(definition)
+                logger.warning(
+                    "Skipping malformed definition during matching id=%s",
+                    getattr(definition, "id", None),
+                    exc_info=True,
+                )
+                continue
 
         return matches

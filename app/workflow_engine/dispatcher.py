@@ -51,11 +51,12 @@ class WorkflowDispatcher:
             try:
                 if not definition.is_active:
                     continue
+                # TODO Phase 5: evaluate definition.conditions against event.data here.
 
                 if definition.id is None:
                     raise ValueError("Workflow definition is missing an ID")
 
-                definition_snapshot = definition.model_dump()
+                definition_snapshot = definition.to_snapshot()
 
                 with self.db.begin_nested():
                     run = self.run_repository.create_from_definition(

@@ -92,6 +92,8 @@ class WorkflowDefinition(BaseModel):
     config = Column(JSON, nullable=False, default=dict)
 
     # Legacy bridge while Workflow table is still used by CRUD endpoints.
+    # TODO: Remove in Phase 6 once Workflow CRUD endpoints are migrated to
+    # WorkflowDefinition.
     workflow_id = Column(
         PG_UUID(as_uuid=True),
         ForeignKey("workflows.id", ondelete="SET NULL"),
@@ -99,7 +101,7 @@ class WorkflowDefinition(BaseModel):
         index=True,
     )
 
-    def model_dump(self) -> dict[str, object]:
+    def to_snapshot(self) -> dict[str, object]:
         """Serialize definition data for immutable run snapshots."""
         return {
             "id": str(self.id) if self.id else None,

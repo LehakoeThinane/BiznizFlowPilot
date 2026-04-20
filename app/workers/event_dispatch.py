@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.core.enums import EventStatus
 from app.core.database import SessionLocal
-from app.repositories.event import EventRepository
 from app.services.event import EventService
+from app.workflow_engine.definition_provider import DefinitionProvider
 from app.workflow_engine import InMemoryDefinitionProvider, WorkflowDispatcher
 from app.workers.celery_app import celery_app
 
@@ -25,11 +25,10 @@ def process_next_event_for_business(
     db: Session,
     business_id: UUID,
     worker_id: str,
-    provider: InMemoryDefinitionProvider | None = None,
+    provider: DefinitionProvider | None = None,
 ) -> dict[str, object]:
     """Claim one event, dispatch matching definitions, and commit the outcome."""
     event_service = EventService(db)
-    event_repo = EventRepository(db)
 
     event = event_service.claim_next_event(business_id=business_id, worker_id=worker_id)
     if event is None:
@@ -57,22 +56,20 @@ def process_next_event_for_business(
         }
     except Exception:
         db.rollback()
-
-        failed_event = event_repo.get(business_id=business_id, entity_id=event.id)
-        if failed_event is not None:
-            failed_event.status = EventStatus.FAILED
-            failed_event.locked_at = None
-            failed_event.claimed_by = None
-            db.commit()
+        db.refresh(event)
+        event.status = EventStatus.FAILED
+        event.locked_at = None
+        event.claimed_by = None
+        db.commit()
 
         raise
 
 
-@celery_app.task(name="workflows.dispatch_next_event")
-def dispatch_next_event_task(business_id: str, worker_id: str | None = None) -> dict[str, object]:
+@celery_app.task(bind=True, name="workflows.dispatch_next_event")
+def dispatch_next_event_task(self, business_id: str, worker_id: str | None = None) -> dict[str, object]:
     """Celery task wrapper for event dispatch loop."""
     business_uuid = UUID(business_id)
-    resolved_worker_id = worker_id or "celery-worker"
+    resolved_worker_id = worker_id or self.request.id or "celery-worker"
 
     with SessionLocal() as db:
         return process_next_event_for_business(
