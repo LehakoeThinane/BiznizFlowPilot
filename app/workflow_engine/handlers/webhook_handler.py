@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 import httpx
@@ -12,6 +11,7 @@ from app.core.enums import ActionFailureType
 from app.workflow_engine.action_config import ActionResult, BaseActionConfig, WebhookActionConfig
 from app.workflow_engine.action_handlers import ActionHandler
 from app.workflow_engine.context import MissingTemplateValueError, render_template_with_context
+from app.workflow_engine.template_renderer import render_template_value
 
 
 class WebhookHandler(ActionHandler):
@@ -37,7 +37,7 @@ class WebhookHandler(ActionHandler):
                 key: render_template_with_context(db, context, value)
                 for key, value in config.headers.items()
             }
-            payload = self._render_payload_template(db, context, config.payload_template)
+            payload = render_template_value(db, context, config.payload_template)
         except MissingTemplateValueError as exc:
             return ActionResult(
                 status="failure",
@@ -107,21 +107,3 @@ class WebhookHandler(ActionHandler):
             data=result_data,
             failure_type=failure_type,
         )
-
-    def _render_payload_template(
-        self,
-        db: Session,
-        context: dict[str, Any],
-        payload_template: Any,
-    ) -> Any:
-        """Render nested payload templates recursively."""
-        if isinstance(payload_template, str):
-            return render_template_with_context(db, context, payload_template)
-        if isinstance(payload_template, list):
-            return [self._render_payload_template(db, context, item) for item in payload_template]
-        if isinstance(payload_template, Mapping):
-            return {
-                str(key): self._render_payload_template(db, context, value)
-                for key, value in payload_template.items()
-            }
-        return payload_template

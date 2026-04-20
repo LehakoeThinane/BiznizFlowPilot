@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from app.workflow_engine.action_handlers import ActionHandlerRegistry
-from app.workflow_engine.handlers import CreateTaskHandler, LogActionHandler, WebhookHandler
+from app.workflow_engine.handlers import (
+    CreateTaskHandler,
+    LogActionHandler,
+    SendEmailHandler,
+    WebhookHandler,
+)
 
 
 def build_default_action_registry() -> ActionHandlerRegistry:
@@ -12,4 +17,5 @@ def build_default_action_registry() -> ActionHandlerRegistry:
     registry.register(LogActionHandler())
     registry.register(CreateTaskHandler())
     registry.register(WebhookHandler())
+    registry.register(SendEmailHandler())
     return registry

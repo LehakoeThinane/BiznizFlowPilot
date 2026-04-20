@@ -59,6 +59,17 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
 
+    # Email delivery
+    smtp_host: str = "localhost"
+    smtp_port: int = 1025
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = False
+    smtp_use_ssl: bool = False
+    smtp_from_email: str = "no-reply@biznizflowpilot.local"
+    smtp_from_name: str = "BiznizFlowPilot"
+    smtp_timeout_seconds: int = 10
+
     # Pagination
     default_page_size: int = 20
     max_page_size: int = 100

@@ -67,12 +67,21 @@ class CreateTaskActionConfig(BaseActionConfig):
 
 
 class SendEmailActionConfig(BaseActionConfig):
-    """Email action configuration."""
+    """Email action configuration.
+
+    Inherits shared execution controls from BaseActionConfig, including:
+    - timeout_seconds
+    - retry_policy
+    - continue_on_failure
+    - enabled
+    """
 
     action_type: Literal["send_email"]
     recipient: str = Field(min_length=3, max_length=255)
     subject: str = Field(min_length=1, max_length=255)
     body_template: str = Field(min_length=1, max_length=5000)
+    from_email: str | None = Field(default=None, max_length=255)
+    from_name: str | None = Field(default=None, max_length=255)
 
 
 class WebhookActionConfig(BaseActionConfig):

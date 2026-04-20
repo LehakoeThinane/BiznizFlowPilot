@@ -14,6 +14,8 @@ from app.services.event import EventService
 from app.workflow_engine import InMemoryDefinitionProvider, WorkflowDispatcher, WorkflowExecutor
 from app.workflow_engine.action_config import ActionResult, BaseActionConfig
 from app.workflow_engine.action_handlers import ActionHandler, ActionHandlerRegistry
+from app.workflow_engine.email_provider import EmailProvider, EmailSendResult
+from app.workflow_engine.handlers.send_email import SendEmailHandler
 from app.workers import recovery as recovery_tasks
 
 
@@ -68,6 +70,34 @@ class _FixedSessionContext:
     def __exit__(self, exc_type, exc, tb) -> bool:
         _ = exc_type, exc, tb
         return False
+
+
+class _FakeEmailProvider(EmailProvider):
+    name = "fake-email"
+
+    def __init__(self):
+        self.send_count = 0
+
+    def send(
+        self,
+        *,
+        recipient: str,
+        subject: str,
+        body: str,
+        from_email: str | None = None,
+        from_name: str | None = None,
+        metadata: dict | None = None,
+        timeout_seconds: int | None = None,
+    ) -> EmailSendResult:
+        _ = body, from_email, from_name, metadata, timeout_seconds
+        self.send_count += 1
+        return EmailSendResult(
+            provider=self.name,
+            recipient=recipient,
+            subject=subject,
+            message_id=f"msg-{self.send_count}",
+            metadata={"accepted": True},
+        )
 
 
 class TestWorkflowExecutorDispatch:
@@ -564,6 +594,63 @@ class TestWorkflowExecutorDispatch:
         assert result["executed_action_count"] == 1
         assert actions[0].status == WorkflowActionStatus.SKIPPED
         assert actions[1].status == WorkflowActionStatus.COMPLETED
+
+    def test_execute_next_run_dispatches_send_email_action(self, test_db: Session, owner_user, sample_lead):
+        event_service = EventService(test_db)
+        event = event_service.create_event(
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            entity_type="lead",
+            entity_id=sample_lead.id,
+            actor_id=owner_user.user_id,
+        )
+
+        definition = WorkflowDefinition(
+            id=uuid4(),
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            is_active=True,
+            name="Send Email Definition",
+            config={
+                "actions": [
+                    {
+                        "action_type": "send_email",
+                        "recipient": "{customer.email}",
+                        "subject": "Welcome {lead.name}",
+                        "body_template": "Hi {lead.name}",
+                    }
+                ]
+            },
+        )
+        test_db.add(definition)
+        test_db.commit()
+
+        run = WorkflowDispatcher(
+            db=test_db,
+            definition_provider=InMemoryDefinitionProvider([definition]),
+        ).dispatch(event)[0]
+        test_db.commit()
+
+        provider = _FakeEmailProvider()
+        registry = ActionHandlerRegistry()
+        registry.register(SendEmailHandler(provider=provider))
+        result = WorkflowExecutor(test_db, handler_registry=registry).execute_next_run(owner_user.business_id)
+        test_db.commit()
+
+        refreshed_run = test_db.query(WorkflowRun).filter(WorkflowRun.id == run.id).first()
+        action = (
+            test_db.query(WorkflowAction)
+            .filter(WorkflowAction.run_id == run.id)
+            .order_by(WorkflowAction.execution_order.asc())
+            .first()
+        )
+
+        assert result["run_status"] == WorkflowRunStatus.COMPLETED.value
+        assert refreshed_run.status == WorkflowRunStatus.COMPLETED
+        assert action.status == WorkflowActionStatus.COMPLETED
+        assert action.result["status"] == "success"
+        assert action.result["data"]["provider"] == "fake-email"
+        assert provider.send_count == 1
 
     def test_integration_dispatch_materialize_execute_mixed_outcomes(self, test_db: Session, owner_user):
         """End-to-end: dispatch -> action materialization -> execute with skippable + success."""
