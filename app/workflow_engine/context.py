@@ -23,6 +23,21 @@ _ENTITY_MODELS = {
     "task": Task,
 }
 
+# Explicit template context allowlist per entity.
+# Internal IDs, tenant keys, and timestamps are intentionally excluded.
+_CONTEXT_FIELD_ALLOWLIST = {
+    "lead": ("status", "source", "value", "notes"),
+    "customer": ("name", "email", "phone", "company", "notes"),
+    "task": (
+        "title",
+        "description",
+        "status",
+        "priority",
+        "due_date",
+        "completed_at",
+    ),
+}
+
 # Cache lifetime is one run execution. Entity data resolved as None
 # is cached as None for the duration of the run. This is intentional
 # for performance but means mid-run data changes are not reflected.
@@ -31,7 +46,7 @@ _CACHE_KEY = "_workflow_context_cache"
 
 class MissingTemplateValueError(ValueError):
     """Raised when template rendering requires a missing field value.
-    
+
     Handlers must catch this and return ActionResult(
         status="failure",
         failure_type=ActionFailureType.TERMINAL,  # or SKIPPABLE if appropriate
@@ -201,25 +216,25 @@ def _build_root_payload(db: Session, context: dict[str, Any], root: str) -> dict
         return None
 
     if root == "customer":
-        payload = _model_to_dict(entity)
+        payload = _model_to_context_dict(entity, "customer")
     elif root == "lead":
         payload = _build_lead_payload(db, context, entity)
     elif root == "task":
         payload = _build_task_payload(db, context, entity)
     else:
-        payload = _model_to_dict(entity)
+        payload = _model_to_context_dict(entity, root)
 
     payload_cache[root] = payload
     return payload
 
 
 def _build_lead_payload(db: Session, context: dict[str, Any], lead: Lead) -> dict[str, Any]:
-    payload = _model_to_dict(lead)
+    payload = _model_to_context_dict(lead, "lead")
     customer = None
     if lead.customer_id:
         customer = _fetch_entity(db, context, "customer", lead.customer_id)
 
-    customer_payload = _model_to_dict(customer) if customer is not None else None
+    customer_payload = _model_to_context_dict(customer, "customer") if customer is not None else None
     payload["customer"] = customer_payload
     # Convenience aliases used by templates such as {lead.name} / {lead.email}.
     payload["name"] = customer_payload.get("name") if customer_payload else None
@@ -229,7 +244,7 @@ def _build_lead_payload(db: Session, context: dict[str, Any], lead: Lead) -> dic
 
 
 def _build_task_payload(db: Session, context: dict[str, Any], task: Task) -> dict[str, Any]:
-    payload = _model_to_dict(task)
+    payload = _model_to_context_dict(task, "task")
 
     lead_payload: dict[str, Any] | None = None
     if task.lead_id:
@@ -311,15 +326,16 @@ def _fetch_entity(
     return entity
 
 
-def _model_to_dict(model: Any) -> dict[str, Any]:
+def _model_to_context_dict(model: Any, entity_type: str) -> dict[str, Any]:
     if model is None:
         return {}
-    if hasattr(model, "to_context_dict"):
-        return model.to_context_dict()
-    return {
-        column.name: getattr(model, column.name)
-        for column in model.__table__.columns
-    }
+
+    normalized_type = _normalize_entity_name(entity_type)
+    allowed_fields = _CONTEXT_FIELD_ALLOWLIST.get(normalized_type)
+    if not allowed_fields:
+        return {}
+
+    return {field: getattr(model, field, None) for field in allowed_fields}
 
 
 def _coerce_uuid(raw: Any) -> UUID | None:

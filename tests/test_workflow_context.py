@@ -92,6 +92,18 @@ class TestWorkflowContextResolver:
         assert resolve_field_path(test_db, context, "lead.status") == sample_lead.status
         assert resolve_field_path(test_db, context, "customer.email") == sample_customer.email
 
+    def test_resolve_field_path_hides_internal_fields(self, test_db: Session, owner_user, sample_task):
+        context = {
+            "business_id": owner_user.business_id,
+            "entity_type": "task",
+            "entity_id": str(sample_task.id),
+        }
+
+        assert resolve_field_path(test_db, context, "task.id") is None
+        assert resolve_field_path(test_db, context, "task.business_id") is None
+        assert resolve_field_path(test_db, context, "task.lead_id") is None
+        assert resolve_field_path(test_db, context, "task.created_at") is None
+
 
 class TestWorkflowTemplateRenderer:
     """Template rendering behavior with resolved context values."""

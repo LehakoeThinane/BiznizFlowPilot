@@ -116,7 +116,6 @@ class CreateTaskHandler(ActionHandler):
                 data={"task_id": str(task.id)},
             )
         except IntegrityError as e:
-            db.rollback()
             logger.exception("Constraint violation while creating task from workflow action")
             return ActionResult(
                 status="failure",
@@ -124,7 +123,6 @@ class CreateTaskHandler(ActionHandler):
                 failure_type=ActionFailureType.TERMINAL,
             )
         except OperationalError as e:
-            db.rollback()
             logger.exception("Database operational error while creating task from workflow action")
             return ActionResult(
                 status="failure",
@@ -132,7 +130,6 @@ class CreateTaskHandler(ActionHandler):
                 failure_type=ActionFailureType.RETRYABLE,
             )
         except Exception as e:
-            db.rollback()
             logger.exception("Unexpected error while creating task from workflow action")
             return ActionResult(
                 status="failure",
