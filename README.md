@@ -12,7 +12,7 @@ Many small businesses lose leads, forget follow-ups, and rely on scattered tools
 
 At this stage, the platform supports the foundational backend required to evolve into a full operations automation system.
 
-Implemented up to Phase 3:
+Implemented up to Phase 4:
 
 - **Phase 1: Foundation**
   - FastAPI project setup
@@ -32,6 +32,12 @@ Implemented up to Phase 3:
   - Event processing foundation for workflow orchestration
   - Audit trail for all entities
 
+- **Phase 4: Workflow Engine**
+  - Workflow definitions (trigger, conditions, actions)
+  - Rule evaluation logic
+  - Action execution context
+  - Workflow run logging and status tracking
+
 ## Architecture Principles
 
 BiznizFlowPilot is being designed around the following principles:
@@ -40,7 +46,8 @@ BiznizFlowPilot is being designed around the following principles:
 - **Multi-tenant data isolation**: Every query filters by `business_id`
 - **Event-driven system design**: All business actions emit events for workflow processing
 - **Clear separation of concerns**: API handles requests, services contain business logic, repositories enforce data access, models define schema
-- **Async-ready processing**: Redis and Celery configured for future workflow execution
+- **Workflow Automation**: Rule-based engine for automating repetitive operations
+- **Async-ready processing**: Redis and Celery configured for background workflow execution
 - **Role-based access control**: Owner, Manager, Staff roles with granular permissions
 
 ## Tech Stack
@@ -49,7 +56,7 @@ BiznizFlowPilot is being designed around the following principles:
 - **Database**: PostgreSQL
 - **ORM**: SQLAlchemy
 - **Migrations**: Alembic
-- **Cache/Queue**: Redis, Celery
+- **Cache/Queue**: Redis, Celery (Phase 5 integration)
 - **Validation**: Pydantic
 - **Authentication**: JWT (PyJWT)
 - **Password Hashing**: bcrypt
@@ -65,7 +72,7 @@ app/
   schemas/          # Pydantic request/response schemas
   repositories/     # Data access layer with multi-tenancy enforcement
   services/         # Business logic layer
-  workers/          # Celery task workers (placeholder)
+  workers/          # Celery task workers (to be implemented)
   utils/            # Logging and utilities
   dependencies.py   # FastAPI dependency injection
 
@@ -78,18 +85,19 @@ migrations/         # Alembic database migrations
 - Phase 1: Foundation ✅
 - Phase 2: Core CRM ✅
 - Phase 3: Event System ✅
-- Phase 4: Workflow Engine
+- Phase 4: Workflow Engine ✅
 - Phase 5: Async Processing and Notifications
 - Phase 6: Dashboard and Reporting
 
 ## Current Status
 
-**Development stage**: Phase 3 completed
+**Development stage**: Phase 4 completed
 
 **Next objectives**:
-- Implement workflow definitions and evaluation logic
-- Build action execution engine
-- Introduce workflow run logging and monitoring
+- Initialize Celery worker and Redis integration
+- Transition workflow execution to asynchronous background tasks
+- Implement retry logic and dead-letter queues
+- Add notification system (email/in-app)
 
 ## Running the Project
 
@@ -163,6 +171,13 @@ pytest tests/test_auth.py
 - `PATCH /api/v1/events/{id}` - Mark event as processed
 - `GET /api/v1/events/audit-trail/{entity_type}/{entity_id}` - Get audit trail
 
+### Workflows
+- `POST /api/v1/workflows` - Create workflow
+- `GET /api/v1/workflows` - List workflows
+- `GET /api/v1/workflows/{id}` - Get workflow
+- `PATCH /api/v1/workflows/{id}` - Update/Activate workflow
+- `POST /api/v1/workflows/{id}/test` - Test workflow evaluation
+
 ## Multi-Tenancy
 
 Every table has a `business_id` foreign key. All queries automatically filter by the current user's `business_id`, enforced at the repository layer. This prevents data leaks between businesses by design.
@@ -195,4 +210,5 @@ The codebase prioritizes:
 
 ---
 
-**Status**: In active development | **Last Updated**: April 17, 2026
+**Status**: In active development | **Last Updated**: April 20, 2026
+
