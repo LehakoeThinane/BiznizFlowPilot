@@ -10,6 +10,18 @@ from app.models.customer import Customer
 from app.models.lead import Lead
 from app.models.task import Task
 from app.models.event import Event
-from app.models.workflow import Workflow, WorkflowAction, WorkflowRun
+from app.models.workflow import Workflow, WorkflowAction, WorkflowDefinition, WorkflowRun
 
-__all__ = ["Base", "Business", "User", "Customer", "Lead", "Task", "Event", "Workflow", "WorkflowAction", "WorkflowRun"]
+__all__ = [
+    "Base",
+    "Business",
+    "User",
+    "Customer",
+    "Lead",
+    "Task",
+    "Event",
+    "Workflow",
+    "WorkflowAction",
+    "WorkflowDefinition",
+    "WorkflowRun",
+]

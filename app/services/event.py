@@ -138,12 +138,12 @@ class EventService:
         total = self.repo.count_unprocessed(business_id=business_id)
         return events, total
 
-    def mark_processed(self, business_id: UUID, current_user: CurrentUser, event_id: UUID) -> Event | None:
-        """Mark event as processed by workflow engine.
+    def mark_dispatched(self, business_id: UUID, current_user: CurrentUser, event_id: UUID) -> Event | None:
+        """Mark event as dispatched by workflow engine.
         
-        🧨 RBAC: Only owner/manager can mark events as processed.
+        🧨 RBAC: Only owner/manager can mark events as dispatched.
         """
-        require_role(current_user, PRIVILEGED_ROLES, "mark events as processed")
+        require_role(current_user, PRIVILEGED_ROLES, "mark events as dispatched")
 
         event = self.repo.get(business_id=business_id, entity_id=event_id)
         if not event:
@@ -152,9 +152,17 @@ class EventService:
         return self.repo.update(
             business_id=business_id,
             entity_id=event_id,
-            status=EventStatus.PROCESSED,
+            status=EventStatus.DISPATCHED,
             locked_at=None,
             claimed_by=None,
+        )
+
+    def mark_processed(self, business_id: UUID, current_user: CurrentUser, event_id: UUID) -> Event | None:
+        """Backward-compatible alias for legacy callers."""
+        return self.mark_dispatched(
+            business_id=business_id,
+            current_user=current_user,
+            event_id=event_id,
         )
 
     def claim_next_event(self, business_id: UUID, worker_id: str) -> Event | None:
@@ -162,7 +170,7 @@ class EventService:
         return self.repo.claim_oldest_pending(business_id=business_id, worker_id=worker_id)
 
     def release_stale_claims(self, business_id: UUID, stale_after_minutes: int = 10) -> int:
-        """Release stale processing claims for recovery workflows."""
+        """Release stale claimed events for recovery workflows."""
         return self.repo.release_stale_claims(
             business_id=business_id,
             stale_after_minutes=stale_after_minutes,

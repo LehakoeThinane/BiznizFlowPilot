@@ -32,7 +32,7 @@ class TaskService:
         if current_user.role not in ["owner", "manager"]:
             raise ValueError("Permission denied: Only owner/manager can create tasks")
 
-        return self.repo.create(business_id=business_id, **data.dict())
+        return self.repo.create(business_id=business_id, **data.model_dump())
 
     def get(self, business_id: UUID, current_user: CurrentUser, task_id: UUID) -> Task | None:
         """Get task by ID.
@@ -110,7 +110,7 @@ class TaskService:
         if current_user.role == "staff" and task.assigned_to != current_user.id:
             raise ValueError("Permission denied: Staff can only update their own tasks")
 
-        update_data = data.dict(exclude_unset=True)
+        update_data = data.model_dump(exclude_unset=True)
 
         # Mark completed_at when status changes to completed
         if data.status == "completed":

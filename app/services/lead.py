@@ -41,7 +41,7 @@ class LeadService:
         if current_user.role not in ["owner", "manager"]:
             raise ValueError("Permission denied: Only owner/manager can create leads")
 
-        return self.repo.create(business_id=business_id, **data.dict())
+        return self.repo.create(business_id=business_id, **data.model_dump())
 
     def get(self, business_id: UUID, current_user: CurrentUser, lead_id: UUID) -> Lead | None:
         """Get lead by ID.
@@ -99,7 +99,7 @@ class LeadService:
             if not self._is_valid_transition(lead.status, data.status):
                 raise ValueError(f"Invalid state transition: {lead.status} → {data.status}")
 
-        update_data = data.dict(exclude_unset=True)
+        update_data = data.model_dump(exclude_unset=True)
         return self.repo.update(business_id=business_id, entity_id=lead_id, **update_data)
 
     def assign(self, business_id: UUID, current_user: CurrentUser, lead_id: UUID, assigned_to: UUID) -> Lead | None:

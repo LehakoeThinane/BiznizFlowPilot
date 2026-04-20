@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.enums import WorkflowRunStatus
 from app.models import Workflow, WorkflowAction, WorkflowRun
 from app.schemas.workflow import WorkflowCreate, WorkflowActionCreate, WorkflowUpdate
 from app.services.workflow import WorkflowService
@@ -462,7 +463,7 @@ class TestWorkflowRuns:
         assert run.id is not None
         assert run.workflow_id == workflow.id
         assert run.business_id == business_id
-        assert run.status == "pending"
+        assert run.status == WorkflowRunStatus.QUEUED
 
     def test_update_run_status(self, db: Session, owner: dict, business_id: UUID):
         """Can update run status."""
@@ -477,10 +478,10 @@ class TestWorkflowRuns:
             db=db,
             business_id=business_id,
             run_id=run.id,
-            status="success",
+            status=WorkflowRunStatus.COMPLETED,
         )
 
-        assert updated.status == "success"
+        assert updated.status == WorkflowRunStatus.COMPLETED
 
     def test_add_run_result(self, db: Session, owner: dict, business_id: UUID):
         """Can add action results to run."""
@@ -509,16 +510,16 @@ class TestWorkflowRuns:
         workflow_data = WorkflowCreate(name="Test", trigger_event_type="lead_created")
         workflow = service.create_workflow(db, business_id, owner["user"], workflow_data)
 
-        # Create 3 runs: 2 pending, 1 success
+        # Create 3 runs: 2 queued, 1 completed
         for i in range(2):
             service.create_run(db=db, business_id=business_id, workflow_id=workflow.id)
 
         run = service.create_run(db=db, business_id=business_id, workflow_id=workflow.id)
-        service.update_run_status(db, business_id, run.id, "success")
+        service.update_run_status(db, business_id, run.id, WorkflowRunStatus.COMPLETED)
 
         pending = service.get_pending_runs(db, business_id)
         assert len(pending) == 2
-        assert all(r.status == "pending" for r in pending)
+        assert all(r.status == WorkflowRunStatus.QUEUED for r in pending)
 
 
 class TestWorkflowMultiTenancy:

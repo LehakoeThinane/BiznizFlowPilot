@@ -7,6 +7,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.core.enums import WorkflowRunStatus
 from app.models import Workflow, WorkflowAction, WorkflowRun
 from app.repositories.workflow import WorkflowActionRepository, WorkflowRepository, WorkflowRunRepository
 from app.schemas.auth import CurrentUser
@@ -42,6 +43,21 @@ class WorkflowService:
     def _check_role(current_user: CurrentUser, allowed_roles: List[str]) -> None:
         if current_user.role.lower() not in {role.lower() for role in allowed_roles}:
             raise PermissionError(f"User role '{current_user.role}' not in allowed roles: {allowed_roles}")
+
+    @staticmethod
+    def _normalize_run_status(status: WorkflowRunStatus | str) -> WorkflowRunStatus:
+        """Support legacy status inputs while standardizing lifecycle values."""
+        if isinstance(status, WorkflowRunStatus):
+            return status
+
+        normalized = status.lower().strip()
+        legacy_map = {
+            "pending": WorkflowRunStatus.QUEUED,
+            "success": WorkflowRunStatus.COMPLETED,
+        }
+        if normalized in legacy_map:
+            return legacy_map[normalized]
+        return WorkflowRunStatus(normalized)
 
     def create_workflow(
         self,
@@ -158,16 +174,21 @@ class WorkflowService:
         db: Session,
         business_id: UUID,
         workflow_id: UUID,
+        workflow_definition_id: Optional[UUID] = None,
+        event_id: Optional[UUID] = None,
         triggered_by_event_id: Optional[UUID] = None,
         actor_id: Optional[UUID] = None,
+        definition_snapshot: Optional[dict[str, Any]] = None,
     ) -> WorkflowRun:
         session = self._bind_repositories(db)
         run = WorkflowRun(
             workflow_id=workflow_id,
+            workflow_definition_id=workflow_definition_id,
             business_id=business_id,
-            triggered_by_event_id=triggered_by_event_id,
+            event_id=event_id or triggered_by_event_id,
             actor_id=actor_id,
-            status="pending",
+            status=WorkflowRunStatus.QUEUED,
+            definition_snapshot=definition_snapshot or {},
             results={},
         )
         session.add(run)
@@ -180,7 +201,7 @@ class WorkflowService:
         db: Session,
         business_id: UUID,
         run_id: UUID,
-        status: str,
+        status: WorkflowRunStatus | str,
         error_message: Optional[str] = None,
     ) -> Optional[WorkflowRun]:
         session = self._bind_repositories(db)
@@ -188,7 +209,7 @@ class WorkflowService:
         if run is None:
             return None
 
-        run.status = status
+        run.status = self._normalize_run_status(status)
         if error_message:
             run.error_message = error_message
 

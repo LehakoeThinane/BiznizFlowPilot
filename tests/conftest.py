@@ -4,6 +4,7 @@ import pytest
 from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker, Session
 
 from app.core.database import get_db
@@ -21,7 +22,11 @@ from app.schemas.auth import CurrentUser
 @pytest.fixture(scope="function")
 def test_db():
     """Create in-memory SQLite database for testing."""
-    engine = create_engine("sqlite:///:memory:")
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     
     # Create all tables
     Base.metadata.create_all(bind=engine)

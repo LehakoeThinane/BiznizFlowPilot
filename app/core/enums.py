@@ -7,8 +7,17 @@ class EventStatus(str, Enum):
     """Lifecycle state for workflow event processing."""
 
     PENDING = "pending"
-    PROCESSING = "processing"
-    PROCESSED = "processed"
+    CLAIMED = "claimed"
+    DISPATCHED = "dispatched"
+    FAILED = "failed"
+
+
+class WorkflowRunStatus(str, Enum):
+    """Lifecycle state for workflow runs after event dispatch."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
     FAILED = "failed"
 
 

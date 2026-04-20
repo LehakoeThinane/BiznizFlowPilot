@@ -71,7 +71,7 @@ class Event(BaseModel):
         default=EventStatus.PENDING,
         server_default=EventStatus.PENDING.value,
         index=True,
-        doc="Workflow processing state: pending, processing, processed, failed",
+        doc="Workflow processing state: pending, claimed, dispatched, failed",
     )
 
     locked_at = Column(
@@ -95,4 +95,4 @@ class Event(BaseModel):
     @property
     def processed(self) -> bool:
         """Backward-compatible processed flag derived from status."""
-        return self.status == EventStatus.PROCESSED
+        return self.status == EventStatus.DISPATCHED

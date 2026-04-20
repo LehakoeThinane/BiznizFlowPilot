@@ -173,7 +173,7 @@ class TestEventProcessing:
             service.list_unprocessed(staff_user.business_id, staff_user)
 
     def test_mark_processed(self, test_db: Session, owner_user: CurrentUser):
-        """Mark event as processed."""
+        """Mark event as dispatched."""
         service = EventService(test_db)
         event = service.create_event(
             business_id=owner_user.business_id,
@@ -186,17 +186,17 @@ class TestEventProcessing:
         # Initially not processed
         assert event.status == EventStatus.PENDING
 
-        # Mark as processed
+        # Mark as dispatched
         updated = service.mark_processed(owner_user.business_id, owner_user, event.id)
 
-        assert updated.status == EventStatus.PROCESSED
+        assert updated.status == EventStatus.DISPATCHED
         assert updated.processed is True
 
     def test_mark_processed_rbac(self, test_db: Session, staff_user: CurrentUser):
-        """Staff cannot mark events as processed."""
+        """Staff cannot mark events as dispatched."""
         service = EventService(test_db)
 
-        with pytest.raises(PermissionError, match="cannot mark events as processed"):
+        with pytest.raises(PermissionError, match="cannot mark events as dispatched"):
             service.mark_processed(staff_user.business_id, staff_user, uuid4())
 
     def test_claim_process_commit_cycle(self, test_db: Session, owner_user: CurrentUser):
@@ -215,7 +215,7 @@ class TestEventProcessing:
         # Claim without commit and ensure rollback returns the event to pending.
         claimed = repo.claim_oldest_pending(owner_user.business_id, worker_id="worker-1")
         assert claimed is not None
-        assert claimed.status == EventStatus.PROCESSING
+        assert claimed.status == EventStatus.CLAIMED
         assert claimed.claimed_by == "worker-1"
         test_db.rollback()
 
@@ -226,13 +226,13 @@ class TestEventProcessing:
 
         # Claim again, process, then commit once for the full worker cycle.
         claimed = repo.claim_oldest_pending(owner_user.business_id, worker_id="worker-1")
-        claimed.status = EventStatus.PROCESSED
+        claimed.status = EventStatus.DISPATCHED
         claimed.claimed_by = None
         claimed.locked_at = None
         test_db.commit()
 
         processed = repo.get(owner_user.business_id, event.id)
-        assert processed.status == EventStatus.PROCESSED
+        assert processed.status == EventStatus.DISPATCHED
         assert processed.processed is True
 
 

@@ -122,14 +122,14 @@ class EventRepository(BaseRepository[Event]):
         if not event:
             return None
 
-        event.status = EventStatus.PROCESSING
+        event.status = EventStatus.CLAIMED
         event.locked_at = datetime.now(timezone.utc)
         event.claimed_by = worker_id
         self.db.flush()
         return event
 
     def release_stale_claims(self, business_id: UUID, stale_after_minutes: int = 10) -> int:
-        """Release events stuck in processing past the staleness threshold.
+        """Release events stuck in claimed state past the staleness threshold.
         
         Caller owns transaction boundaries and commit/rollback.
         """
@@ -138,7 +138,7 @@ class EventRepository(BaseRepository[Event]):
             self.db.query(Event)
             .filter(
                 Event.business_id == business_id,
-                Event.status == EventStatus.PROCESSING,
+                Event.status == EventStatus.CLAIMED,
                 Event.locked_at.is_not(None),
                 Event.locked_at < cutoff,
             )

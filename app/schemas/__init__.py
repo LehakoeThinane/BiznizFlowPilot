@@ -13,6 +13,8 @@ from app.schemas.workflow import (
     WorkflowListResponse,
     WorkflowActionCreate,
     WorkflowActionResponse,
+    WorkflowDefinitionCreate,
+    WorkflowDefinitionResponse,
     WorkflowRunResponse,
     WorkflowRunListResponse,
 )
@@ -55,6 +57,8 @@ __all__ = [
     "WorkflowListResponse",
     "WorkflowActionCreate",
     "WorkflowActionResponse",
+    "WorkflowDefinitionCreate",
+    "WorkflowDefinitionResponse",
     "WorkflowRunResponse",
     "WorkflowRunListResponse",
 ]

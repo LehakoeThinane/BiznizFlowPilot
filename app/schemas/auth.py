@@ -52,3 +52,8 @@ class CurrentUser(BaseModel):
     email: str
     role: str
     full_name: str
+
+    @property
+    def id(self) -> UUID:
+        """Backward-compatible alias for legacy service code."""
+        return self.user_id

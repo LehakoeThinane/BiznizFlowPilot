@@ -93,18 +93,18 @@ def get_event(
 
 
 @router.patch("/{event_id}", response_model=EventResponse)
-def mark_event_processed(
+def mark_event_dispatched(
     event_id: UUID,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
-    """Mark event as processed by workflow engine.
+    """Mark event as dispatched by workflow engine.
     
-    🧨 RBAC: Only owner/manager can mark events as processed.
+    🧨 RBAC: Only owner/manager can mark events as dispatched.
     """
     service = EventService(db)
     try:
-        event = service.mark_processed(current_user.business_id, current_user, event_id)
+        event = service.mark_dispatched(current_user.business_id, current_user, event_id)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except Exception:
