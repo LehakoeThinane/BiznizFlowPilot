@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy import Column, DateTime, String, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -37,6 +38,29 @@ class BaseModel(Base):
         nullable=False,
         doc="Last update timestamp",
     )
+
+    # Subclasses can override this to limit exposed template fields
+    SAFE_CONTEXT_FIELDS: set[str] | None = None
+
+    def to_context_dict(self) -> dict[str, Any]:
+        """Convert model to context dictionary, filtering safe template fields.
+        
+        If SAFE_CONTEXT_FIELDS is defined, only those fields are exported.
+        Otherwise it exports all columns except sensitive ones like passwords.
+        """
+        if self.SAFE_CONTEXT_FIELDS is not None:
+            return {
+                col: getattr(self, col)
+                for col in self.SAFE_CONTEXT_FIELDS
+                if hasattr(self, col)
+            }
+            
+        excluded = {"hashed_password"}
+        return {
+            column.name: getattr(self, column.name)
+            for column in self.__table__.columns
+            if column.name not in excluded
+        }
 
     def __repr__(self) -> str:
         """String representation."""
