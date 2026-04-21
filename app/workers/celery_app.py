@@ -21,16 +21,16 @@ celery_app.conf.update(
     beat_schedule={
         "release-stale-event-claims": {
             "task": "ops.release_stale_event_claims",
-            "schedule": timedelta(seconds=60),
+            "schedule": timedelta(seconds=settings.stale_claim_check_interval_seconds),
             "args": (10,),
         },
         "requeue-due-action-retries": {
             "task": "ops.requeue_due_action_retries",
-            "schedule": timedelta(seconds=60),
+            "schedule": timedelta(seconds=settings.action_retry_check_interval_seconds),
         },
         "release-stale-workflow-runs": {
             "task": "ops.release_stale_workflow_runs",
-            "schedule": timedelta(seconds=300),
+            "schedule": timedelta(seconds=settings.stale_run_check_interval_seconds),
             "args": (30,),
         },
     },

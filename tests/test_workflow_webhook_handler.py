@@ -146,6 +146,33 @@ def test_webhook_handler_5xx_is_retryable(test_db: Session, owner_user, sample_l
     assert result.data["status_code"] == 503
 
 
+def test_webhook_handler_non_retryable_5xx_is_terminal(test_db: Session, owner_user, sample_lead, monkeypatch):
+    monkeypatch.setattr(
+        "app.workflow_engine.handlers.webhook_handler.httpx.request",
+        lambda **kwargs: _FakeResponse(status_code=501, text="not implemented"),
+    )
+
+    handler = WebhookHandler()
+    config = parse_action_config(
+        {
+            "action_type": "webhook",
+            "url": "https://example.test/hooks",
+            "method": "POST",
+            "payload_template": {"lead_status": "{lead.status}"},
+        }
+    )
+    context = {
+        "business_id": owner_user.business_id,
+        "entity_type": "lead",
+        "entity_id": str(sample_lead.id),
+    }
+
+    result = handler.execute(db=test_db, action_config=config, context=context)
+    assert result.status == "failure"
+    assert result.failure_type == ActionFailureType.TERMINAL
+    assert result.data["status_code"] == 501
+
+
 def test_webhook_handler_missing_template_value_is_terminal(
     test_db: Session, owner_user, sample_lead, monkeypatch
 ):
@@ -173,6 +200,42 @@ def test_webhook_handler_missing_template_value_is_terminal(
     assert result.status == "failure"
     assert result.failure_type == ActionFailureType.TERMINAL
     assert "Missing template value" in result.message
+
+
+def test_webhook_handler_payload_depth_limit_is_terminal(test_db: Session, owner_user, sample_lead, monkeypatch):
+    called = {"request_called": False}
+
+    def _fake_request(*, method, url, headers=None, json=None, timeout=None):
+        _ = method, url, headers, json, timeout
+        called["request_called"] = True
+        return _FakeResponse(status_code=200, text="ok")
+
+    monkeypatch.setattr("app.workflow_engine.handlers.webhook_handler.httpx.request", _fake_request)
+
+    deep_payload = "{lead.status}"
+    for _ in range(12):
+        deep_payload = [deep_payload]
+
+    handler = WebhookHandler()
+    config = parse_action_config(
+        {
+            "action_type": "webhook",
+            "url": "https://example.test/hooks",
+            "method": "POST",
+            "payload_template": {"deep": deep_payload},
+        }
+    )
+    context = {
+        "business_id": owner_user.business_id,
+        "entity_type": "lead",
+        "entity_id": str(sample_lead.id),
+    }
+
+    result = handler.execute(db=test_db, action_config=config, context=context)
+    assert result.status == "failure"
+    assert result.failure_type == ActionFailureType.TERMINAL
+    assert "max_depth" in result.message
+    assert called["request_called"] is False
 
 
 def test_webhook_handler_invalid_protocol_is_terminal(test_db: Session, owner_user, sample_lead, monkeypatch):

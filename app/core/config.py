@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
+    stale_claim_check_interval_seconds: int = 60
+    action_retry_check_interval_seconds: int = 60
+    stale_run_check_interval_seconds: int = 300
 
     # Email delivery
     smtp_host: str = "localhost"

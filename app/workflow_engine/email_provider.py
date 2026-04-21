@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from email.message import EmailMessage
-from email.utils import formataddr, make_msgid
+from email.utils import formataddr, formatdate, make_msgid
 from functools import lru_cache
 import smtplib
 import socket
@@ -115,6 +115,7 @@ class SMTPEmailProvider(EmailProvider):
         message["From"] = from_header
         message["To"] = recipient
         message["Subject"] = subject
+        message["Date"] = formatdate(localtime=True)
         message["Message-ID"] = make_msgid(domain=sender_email.split("@")[-1])
         message.set_content(body)
 
@@ -144,7 +145,8 @@ class SMTPEmailProvider(EmailProvider):
                     first_error = next(iter(refused.values()))
                     code = int(first_error[0]) if first_error else 550
                     msg = str(first_error[1]) if len(first_error) > 1 else "recipient refused"
-                    if 400 <= code < 500:
+                    retryable_codes = {421, 450}
+                    if code in retryable_codes:
                         raise RetryableEmailProviderError(
                             f"Recipient temporarily refused ({code}): {msg}",
                             metadata=request_metadata,
@@ -184,7 +186,8 @@ class SMTPEmailProvider(EmailProvider):
         except smtplib.SMTPResponseException as exc:
             code = int(exc.smtp_code)
             message_text = exc.smtp_error.decode() if isinstance(exc.smtp_error, bytes) else str(exc.smtp_error)
-            if 400 <= code < 500:
+            retryable_codes = {421, 450}
+            if code in retryable_codes:
                 error_cls: type[EmailProviderError] = RetryableEmailProviderError
             else:
                 error_cls = TerminalEmailProviderError

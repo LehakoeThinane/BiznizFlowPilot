@@ -22,15 +22,43 @@ def render_template_string(db: Session, context: dict[str, Any], template: str) 
     return render_template_with_context(db, context, template)
 
 
-def render_template_value(db: Session, context: dict[str, Any], value: Any) -> Any:
-    """Render template placeholders inside a nested value recursively."""
+def render_template_value(
+    db: Session,
+    context: dict[str, Any],
+    value: Any,
+    *,
+    max_depth: int = 10,
+    _depth: int = 0,
+) -> Any:
+    """Render template placeholders inside a nested value recursively.
+
+    Raises:
+    - ValueError when nested structures exceed max_depth.
+    """
+    if _depth > max_depth:
+        raise ValueError(f"Template payload nesting exceeds max_depth={max_depth}")
     if isinstance(value, str):
         return render_template_string(db, context, value)
     if isinstance(value, list):
-        return [render_template_value(db, context, item) for item in value]
+        return [
+            render_template_value(
+                db,
+                context,
+                item,
+                max_depth=max_depth,
+                _depth=_depth + 1,
+            )
+            for item in value
+        ]
     if isinstance(value, Mapping):
         return {
-            str(key): render_template_value(db, context, nested_value)
+            str(key): render_template_value(
+                db,
+                context,
+                nested_value,
+                max_depth=max_depth,
+                _depth=_depth + 1,
+            )
             for key, nested_value in value.items()
         }
     return value

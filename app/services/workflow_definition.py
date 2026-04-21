@@ -29,10 +29,8 @@ class WorkflowDefinitionService:
         current_user: CurrentUser,
         data: WorkflowDefinitionCreate,
     ) -> WorkflowDefinition:
-        """Create definition with validated action config."""
+        """Create definition from already-validated schema payload."""
         require_role(current_user, PRIVILEGED_ROLES, "create workflow definitions")
-
-        normalized_config = validate_and_normalize_definition_config(data.config)
         definition = self.repo.create_definition(
             db=self.db,
             business_id=business_id,
@@ -40,7 +38,7 @@ class WorkflowDefinitionService:
             is_active=data.is_active,
             name=data.name,
             conditions=data.conditions,
-            config=normalized_config,
+            config=data.config,
             workflow_id=data.workflow_id,
         )
         self.db.commit()
@@ -104,11 +102,12 @@ class WorkflowDefinitionService:
             return None
 
         updates = data.model_dump(exclude_unset=True)
-        if "config" in updates:
-            updates["config"] = validate_and_normalize_definition_config(updates["config"])
 
         # Activation safety: re-validate existing config when re-enabling without
         # an explicit config patch, so broken definitions cannot be reactivated.
+        # Re-validates the currently-stored config for structural integrity only.
+        # It does not protect against configs that reference removed action types
+        # or deprecated field names introduced by future schema evolution.
         if updates.get("is_active") is True and "config" not in updates:
             validate_and_normalize_definition_config(definition.config or {})
 

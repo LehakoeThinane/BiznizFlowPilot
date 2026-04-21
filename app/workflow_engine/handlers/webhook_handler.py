@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+import httpx  # Uses synchronous API; safe in Celery workers only.
 from sqlalchemy.orm import Session
 
 from app.core.enums import ActionFailureType
@@ -38,7 +38,7 @@ class WebhookHandler(ActionHandler):
                 for key, value in config.headers.items()
             }
             payload = render_template_value(db, context, config.payload_template)
-        except MissingTemplateValueError as exc:
+        except (MissingTemplateValueError, ValueError) as exc:
             return ActionResult(
                 status="failure",
                 message=str(exc),
@@ -96,9 +96,10 @@ class WebhookHandler(ActionHandler):
                 data=result_data,
             )
 
+        retryable_codes = {408, 429, 500, 502, 503, 504}
         failure_type = (
             ActionFailureType.RETRYABLE
-            if status_code in (408, 429) or status_code >= 500
+            if status_code in retryable_codes
             else ActionFailureType.TERMINAL
         )
         return ActionResult(

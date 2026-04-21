@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.core.enums import EventStatus, EventType, WorkflowActionStatus, WorkflowRunStatus
+from app.core.config import settings
 from app.models import Event, WorkflowAction, WorkflowRun
 from app.workers import recovery as recovery_tasks
 from app.workers.celery_app import celery_app
@@ -261,12 +262,12 @@ def test_beat_schedule_contains_recovery_jobs():
 
     assert "release-stale-event-claims" in schedule
     assert schedule["release-stale-event-claims"]["task"] == "ops.release_stale_event_claims"
-    assert int(schedule["release-stale-event-claims"]["schedule"].total_seconds()) == 60
+    assert int(schedule["release-stale-event-claims"]["schedule"].total_seconds()) == settings.stale_claim_check_interval_seconds
 
     assert "requeue-due-action-retries" in schedule
     assert schedule["requeue-due-action-retries"]["task"] == "ops.requeue_due_action_retries"
-    assert int(schedule["requeue-due-action-retries"]["schedule"].total_seconds()) == 60
+    assert int(schedule["requeue-due-action-retries"]["schedule"].total_seconds()) == settings.action_retry_check_interval_seconds
 
     assert "release-stale-workflow-runs" in schedule
     assert schedule["release-stale-workflow-runs"]["task"] == "ops.release_stale_workflow_runs"
-    assert int(schedule["release-stale-workflow-runs"]["schedule"].total_seconds()) == 300
+    assert int(schedule["release-stale-workflow-runs"]["schedule"].total_seconds()) == settings.stale_run_check_interval_seconds
