@@ -545,7 +545,13 @@ class WorkflowRunRepository(BaseRepository[WorkflowRun]):
         if run is None:
             return None
 
+        now = datetime.now(timezone.utc)
         run.status = WorkflowRunStatus.RUNNING
+        # Preserve first-claim timestamp to measure full run wall time
+        # across retries/requeues.
+        if run.started_at is None:
+            run.started_at = now
+        run.finished_at = None
         db.flush()
         return run
 

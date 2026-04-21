@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -14,6 +15,8 @@ from app.repositories.workflow import WorkflowActionRepository, WorkflowRunRepos
 from app.workflow_engine.action_config import parse_action_config
 from app.workflow_engine.action_handlers import ActionHandlerRegistry
 from app.workflow_engine.registry import build_default_action_registry
+
+logger = logging.getLogger(__name__)
 
 
 class WorkflowExecutor:
@@ -60,6 +63,18 @@ class WorkflowExecutor:
         # Retries are requeued by a periodic Beat task, not inline here.
         # This loop only processes actions that are already pending.
         pending_actions = self.action_repository.get_pending_for_run(db=self.db, run_id=run.id)
+        logger.info(
+            "executor.run.claimed",
+            extra={
+                "run_id": str(run.id),
+                "business_id": str(run.business_id),
+                "workflow_definition_id": (
+                    str(run.workflow_definition_id) if run.workflow_definition_id else None
+                ),
+                "event_id": str(run.event_id) if run.event_id else None,
+                "action_count": len(pending_actions),
+            },
+        )
         context = self._build_action_context(run)
 
         executed_action_ids: list[str] = []
@@ -70,11 +85,28 @@ class WorkflowExecutor:
         for action in pending_actions:
             action_config = parse_action_config(action.config_snapshot)
             handler = self.handler_registry.get(action_config.action_type)
+            attempt_started_at = datetime.now(timezone.utc)
+            if action.started_at is None:
+                action.started_at = attempt_started_at
+            logger.info(
+                "handler.action.start",
+                extra={
+                    "action_id": str(action.id),
+                    "run_id": str(action.run_id) if action.run_id else None,
+                    "business_id": str(run.business_id),
+                    "action_type": action_config.action_type,
+                    "attempt_count": action.attempt_count,
+                },
+            )
             result = handler.execute(
                 db=self.db,
                 action_config=action_config,
                 context=context,
             )
+            attempt_finished_at = datetime.now(timezone.utc)
+            action.finished_at = attempt_finished_at
+            action.executed_at = attempt_finished_at
+            attempt_duration_ms = int((attempt_finished_at - attempt_started_at).total_seconds() * 1000)
 
             if result.status != "success":
                 failure_type = result.failure_type or ActionFailureType.TERMINAL
@@ -96,9 +128,21 @@ class WorkflowExecutor:
                     action.error = result.message
                     action.failure_type = failure_type
                     retry_scheduled_action_ids.append(str(action.id))
+                    logger.info(
+                        "handler.action.failed",
+                        extra={
+                            "action_id": str(action.id),
+                            "run_id": str(action.run_id) if action.run_id else None,
+                            "business_id": str(run.business_id),
+                            "action_type": action_config.action_type,
+                            "result_status": result.status,
+                            "failure_type": failure_type.value,
+                            "duration_ms": attempt_duration_ms,
+                            "will_retry": True,
+                        },
+                    )
                     continue
 
-                action.executed_at = datetime.now(timezone.utc)
                 action.result = result.model_dump()
                 action.error = result.message
                 action.failure_type = failure_type
@@ -106,10 +150,36 @@ class WorkflowExecutor:
                 if failure_type == ActionFailureType.SKIPPABLE:
                     action.status = WorkflowActionStatus.SKIPPED
                     skipped_action_ids.append(str(action.id))
+                    logger.info(
+                        "handler.action.failed",
+                        extra={
+                            "action_id": str(action.id),
+                            "run_id": str(action.run_id) if action.run_id else None,
+                            "business_id": str(run.business_id),
+                            "action_type": action_config.action_type,
+                            "result_status": result.status,
+                            "failure_type": failure_type.value,
+                            "duration_ms": attempt_duration_ms,
+                            "will_retry": False,
+                        },
+                    )
                     continue
 
                 action.status = WorkflowActionStatus.FAILED
                 failed_action_ids.append(str(action.id))
+                logger.info(
+                    "handler.action.failed",
+                    extra={
+                        "action_id": str(action.id),
+                        "run_id": str(action.run_id) if action.run_id else None,
+                        "business_id": str(run.business_id),
+                        "action_type": action_config.action_type,
+                        "result_status": result.status,
+                        "failure_type": failure_type.value,
+                        "duration_ms": attempt_duration_ms,
+                        "will_retry": False,
+                    },
+                )
 
                 if action_config.continue_on_failure:
                     continue
@@ -120,11 +190,23 @@ class WorkflowExecutor:
                 break
 
             action.status = WorkflowActionStatus.COMPLETED
-            action.executed_at = datetime.now(timezone.utc)
             action.result = result.model_dump()
             action.error = None
             action.failure_type = None
             executed_action_ids.append(str(action.id))
+            logger.info(
+                "handler.action.complete",
+                extra={
+                    "action_id": str(action.id),
+                    "run_id": str(action.run_id) if action.run_id else None,
+                    "business_id": str(run.business_id),
+                    "action_type": action_config.action_type,
+                    "result_status": result.status,
+                    "failure_type": None,
+                    "duration_ms": attempt_duration_ms,
+                    "will_retry": False,
+                },
+            )
 
         # Session autoflush is disabled in tests; flush before status resolution.
         self.db.flush()
@@ -141,6 +223,28 @@ class WorkflowExecutor:
                 # or SKIPPED, and there are no retries pending. Run is done.
                 if not remaining_actions:
                     run.status = WorkflowRunStatus.COMPLETED
+
+        if run.status in (WorkflowRunStatus.COMPLETED, WorkflowRunStatus.FAILED):
+            finished_at = datetime.now(timezone.utc)
+            run.finished_at = finished_at
+            duration_ms: int | None = None
+            if run.started_at:
+                started_at = run.started_at
+                if started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=timezone.utc)
+                duration_ms = int((finished_at - started_at).total_seconds() * 1000)
+            logger.info(
+                "executor.run.completed" if run.status == WorkflowRunStatus.COMPLETED else "executor.run.failed",
+                extra={
+                    "run_id": str(run.id),
+                    "business_id": str(run.business_id),
+                    "duration_ms": duration_ms,
+                    "actions_executed": len(executed_action_ids),
+                    "actions_failed": len(failed_action_ids),
+                    "actions_retried": len(retry_scheduled_action_ids),
+                    "final_status": run.status.value,
+                },
+            )
 
         self.db.flush()
         return {

@@ -162,6 +162,8 @@ class WorkflowAction(BaseModel):
         server_default=WorkflowActionStatus.PENDING.value,
         index=True,
     )
+    started_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True, index=True)
     result = Column(JSON, default=dict, nullable=False)
     executed_at = Column(DateTime(timezone=True), nullable=True, index=True)
     error = Column(Text, nullable=True)
@@ -246,6 +248,8 @@ class WorkflowRun(BaseModel):
     definition_snapshot = Column(JSON, nullable=False, default=dict)
     error_message = Column(Text, nullable=True)
     results = Column(JSON, default=dict, nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True, index=True)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
