@@ -19,6 +19,7 @@ from app.core.enums import EventType
 from app.models import Business, Event, WorkflowDefinition
 from app.services.event import EventService
 from app.workflow_engine import WorkflowDispatcher, WorkflowExecutor
+from app.workflow_engine.action_handlers import ActionHandlerRegistry
 from app.workflow_engine.definition_provider import DatabaseDefinitionProvider
 
 
@@ -113,10 +114,15 @@ def _worker_execute_loop(
     business_ids: list[str],
     max_iterations: int,
     queue: mp.Queue,
+    handler_registry: ActionHandlerRegistry | None = None,
 ) -> None:
     worker_engine, worker_session_factory = _new_process_session_factory()
     session = worker_session_factory()
-    executor = WorkflowExecutor(session)
+    executor = (
+        WorkflowExecutor(session, handler_registry=handler_registry)
+        if handler_registry is not None
+        else WorkflowExecutor(session)
+    )
     claimed_run_ids: list[str] = []
     executed_actions = 0
     errors: list[str] = []
@@ -164,6 +170,7 @@ def run_worker_pool(
     worker_count: int,
     max_iterations: int = 100,
     timeout_seconds: int = 30,
+    handler_registry: ActionHandlerRegistry | None = None,
 ) -> dict[str, Any]:
     """Spawn worker processes that run the executor loop concurrently."""
     ctx = mp.get_context("spawn")
@@ -177,6 +184,7 @@ def run_worker_pool(
                 "business_ids": [str(business_id) for business_id in business_ids],
                 "max_iterations": max_iterations,
                 "queue": queue,
+                "handler_registry": handler_registry,
             },
             daemon=True,
         )
