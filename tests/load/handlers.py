@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.enums import ActionFailureType
 from app.workflow_engine.action_config import ActionResult, BaseActionConfig
 from app.workflow_engine.action_handlers import ActionHandler, ActionHandlerRegistry
+from app.workflow_engine.context import MissingTemplateValueError, render_template_with_context
 
 
 class AlwaysSucceedHandler(ActionHandler):
@@ -126,6 +127,41 @@ class SlowHandler(ActionHandler):
         )
 
 
+class ContextRenderingCreateTaskHandler(ActionHandler):
+    """Renders create_task title template via context resolver for isolation checks."""
+
+    action_type = "create_task"
+
+    def execute(
+        self,
+        *,
+        db: Session,
+        action_config: BaseActionConfig,
+        context: dict[str, Any],
+    ) -> ActionResult:
+        payload = action_config.model_dump()
+        template = str(payload.get("title", ""))
+        try:
+            rendered_message = render_template_with_context(db, context, template)
+        except MissingTemplateValueError as exc:
+            return ActionResult(
+                status="failure",
+                message=str(exc),
+                data={"handler": "ContextRenderingCreateTaskHandler"},
+                failure_type=ActionFailureType.TERMINAL,
+            )
+
+        return ActionResult(
+            status="success",
+            message=rendered_message,
+            data={
+                "handler": "ContextRenderingCreateTaskHandler",
+                "rendered_message": rendered_message,
+            },
+            failure_type=None,
+        )
+
+
 def build_test_handler_registry() -> ActionHandlerRegistry:
     """Build deterministic registry for load tests."""
     registry = ActionHandlerRegistry()
@@ -133,4 +169,11 @@ def build_test_handler_registry() -> ActionHandlerRegistry:
     registry.register(AlwaysFailTerminalHandler())
     registry.register(AlwaysFailRetryableHandler())
     registry.register(SlowHandler())
+    return registry
+
+
+def build_isolation_handler_registry() -> ActionHandlerRegistry:
+    """Build handler registry focused on context rendering assertions."""
+    registry = ActionHandlerRegistry()
+    registry.register(ContextRenderingCreateTaskHandler())
     return registry
