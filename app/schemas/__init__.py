@@ -4,6 +4,12 @@ from app.schemas.auth import CurrentUser, LoginRequest, RegisterRequest, TokenRe
 from app.schemas.customer import CustomerCreate, CustomerListResponse, CustomerResponse, CustomerUpdate
 from app.schemas.event import EventAuditTrailResponse, EventCreate, EventListResponse, EventResponse
 from app.schemas.lead import LeadCreate, LeadListResponse, LeadResponse, LeadUpdate
+from app.schemas.metrics import (
+    MetricsResponse,
+    WorkflowActionMetrics,
+    WorkflowDefinitionMetrics,
+    WorkflowRunMetrics,
+)
 from app.schemas.task import TaskCreate, TaskListResponse, TaskResponse, TaskUpdate
 from app.schemas.user import UserCreate, UserListResponse, UserResponse, UserUpdate
 from app.schemas.workflow import (
@@ -43,6 +49,11 @@ __all__ = [
     "LeadUpdate",
     "LeadResponse",
     "LeadListResponse",
+    # Metrics
+    "WorkflowRunMetrics",
+    "WorkflowActionMetrics",
+    "WorkflowDefinitionMetrics",
+    "MetricsResponse",
     # Task
     "TaskCreate",
     "TaskUpdate",

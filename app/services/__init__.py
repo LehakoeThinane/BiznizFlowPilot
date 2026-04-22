@@ -4,6 +4,7 @@ from app.services.auth import AuthService
 from app.services.customer import CustomerService
 from app.services.event import EventService
 from app.services.lead import LeadService
+from app.services.metrics import MetricsService
 from app.services.recovery import (
     EventRecoveryService,
     WorkflowActionRecoveryService,
@@ -19,6 +20,7 @@ __all__ = [
     "EventService",
     "EventRecoveryService",
     "LeadService",
+    "MetricsService",
     "TaskService",
     "WorkflowActionRecoveryService",
     "WorkflowRunRecoveryService",
