@@ -1,214 +1,142 @@
 # BiznizFlowPilot
 
-BiznizFlowPilot is a multi-tenant operations automation platform designed for small businesses. It helps SMMEs manage leads, tasks, follow-ups, and internal workflows through a structured event-driven backend.
+BiznizFlowPilot is a multi-tenant, event-driven workflow automation backend.
+It is built as platform infrastructure that can power other products, not as a UI-first application.
 
-The system is being built with a layered architecture and a product-first approach, with a focus on operational reliability, automation, and clear separation of responsibilities across the API, domain, data, and workflow layers.
+## What It Provides
 
-## Problem It Solves
+- JWT-authenticated multi-tenant API
+- CRM entities (`customers`, `leads`, `tasks`)
+- Event ingestion with audit trail
+- Workflow definition CRUD with validation and soft delete
+- Async dispatch/execution model with Celery workers
+- Retry orchestration and stale-work recovery loops
+- Pluggable action handlers (`create_task`, `webhook`, `send_email`)
+- Tenant-scoped operational metrics (`GET /api/v1/metrics`)
 
-Many small businesses lose leads, forget follow-ups, and rely on scattered tools such as WhatsApp, spreadsheets, and email to manage day-to-day operations. BiznizFlowPilot is designed to centralize those workflows and reduce manual coordination.
+## Current Build Status
 
-## Current Scope
+- Phase 1: Foundation ✅
+- Phase 2: Core CRM ✅
+- Phase 3: Event System ✅
+- Phase 4: Workflow Dispatch ✅
+- Phase 5: Async Execution + Recovery ✅
+- Phase 6: Definition Management + Context/Templating ✅
 
-At this stage, the platform supports the foundational backend required to evolve into a full operations automation system.
+Load-test harnesses are implemented (PostgreSQL-gated) for:
 
-Implemented up to Phase 4:
+- concurrency and duplicate prevention
+- mixed volume outcomes and timeout behavior
+- recovery performance at scale
+- tenant isolation and cross-tenant leakage checks
 
-- **Phase 1: Foundation**
-  - FastAPI project setup
-  - PostgreSQL integration
-  - JWT authentication
-  - Multi-tenant business isolation
+## Architecture
 
-- **Phase 2: Core CRM Layer**
-  - Customers
-  - Leads
-  - Tasks
-  - Role-based access control (Owner, Manager, Staff)
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full system design.
 
-- **Phase 3: Event System**
-  - Event creation for core business actions
-  - Event storage and tracking with metadata
-  - Event processing foundation for workflow orchestration
-  - Audit trail for all entities
+Core layering:
 
-- **Phase 4: Workflow Engine**
-  - Workflow definitions (trigger, conditions, actions)
-  - Rule evaluation logic
-  - Action execution context
-  - Workflow run logging and status tracking
+- API -> Services -> Repositories -> Models -> Database
 
-## Architecture Principles
+Core runtime flow:
 
-BiznizFlowPilot is being designed around the following principles:
-
-- **Layered architecture**: API → Services → Repositories → Models → Database
-- **Multi-tenant data isolation**: Every query filters by `business_id`
-- **Event-driven system design**: All business actions emit events for workflow processing
-- **Clear separation of concerns**: API handles requests, services contain business logic, repositories enforce data access, models define schema
-- **Workflow Automation**: Rule-based engine for automating repetitive operations
-- **Async-ready processing**: Redis and Celery configured for background workflow execution
-- **Role-based access control**: Owner, Manager, Staff roles with granular permissions
+- event claim -> dispatch runs/actions -> execute actions -> retry/requeue -> recovery
 
 ## Tech Stack
 
-- **Framework**: FastAPI
-- **Database**: PostgreSQL
-- **ORM**: SQLAlchemy
-- **Migrations**: Alembic
-- **Cache/Queue**: Redis, Celery (Phase 5 integration)
-- **Validation**: Pydantic
-- **Authentication**: JWT (PyJWT)
-- **Password Hashing**: bcrypt
-- **Testing**: pytest
+- FastAPI
+- SQLAlchemy + Alembic
+- PostgreSQL
+- Redis + Celery
+- Pydantic v2
+- pytest
 
 ## Project Structure
 
 ```
 app/
   api/              # FastAPI route handlers
-  core/             # Configuration, security, database
-  models/           # SQLAlchemy ORM models
-  schemas/          # Pydantic request/response schemas
-  repositories/     # Data access layer with multi-tenancy enforcement
-  services/         # Business logic layer
-  workers/          # Celery task workers (to be implemented)
-  utils/            # Logging and utilities
-  dependencies.py   # FastAPI dependency injection
+  core/             # config, security, database
+  models/           # SQLAlchemy models
+  repositories/     # data access and query boundaries
+  schemas/          # Pydantic request/response models
+  services/         # business logic
+  workflow_engine/  # dispatch/executor/handlers/context
+  workers/          # Celery task entry points
 
-tests/              # Comprehensive test suite
-migrations/         # Alembic database migrations
+tests/
+  load/             # PostgreSQL-gated load validation suites
+
+migrations/         # Alembic revisions
 ```
 
-## Roadmap
-
-- Phase 1: Foundation ✅
-- Phase 2: Core CRM ✅
-- Phase 3: Event System ✅
-- Phase 4: Workflow Engine ✅
-- Phase 5: Async Processing and Notifications
-- Phase 6: Dashboard and Reporting
-
-## Current Status
-
-**Development stage**: Phase 4 completed
-
-**Next objectives**:
-- Initialize Celery worker and Redis integration
-- Transition workflow execution to asynchronous background tasks
-- Implement retry logic and dead-letter queues
-- Add notification system (email/in-app)
-
-## Running the Project
+## Running Locally
 
 ### Setup
 
 ```bash
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
-# Configure environment
 cp .env.example .env
-# Edit .env with your database and API settings
-
-# Run migrations
 alembic upgrade head
-
-# Start the server
 uvicorn app.main:app --reload
 ```
 
-### Testing
+### Tests
 
 ```bash
-# Run all tests
 pytest
-
-# Run with coverage
-pytest --cov=app tests/
-
-# Run specific test file
-pytest tests/test_auth.py
+pytest tests/test_metrics_api.py
+pytest tests/load/ -v   # requires PostgreSQL DATABASE_URL
 ```
 
-## API Endpoints
+## API Surface (high level)
 
-### Authentication
-- `POST /api/v1/auth/register` - Register new business and owner
-- `POST /api/v1/auth/login` - Login and get JWT tokens
+### Auth
 
-### Customers
-- `POST /api/v1/customers` - Create customer
-- `GET /api/v1/customers` - List customers
-- `GET /api/v1/customers/{id}` - Get customer
-- `PATCH /api/v1/customers/{id}` - Update customer
-- `DELETE /api/v1/customers/{id}` - Delete customer
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `GET /api/v1/me`
 
-### Leads
-- `POST /api/v1/leads` - Create lead
-- `GET /api/v1/leads` - List leads (filtered by status, assignment)
-- `GET /api/v1/leads/{id}` - Get lead
-- `PATCH /api/v1/leads/{id}` - Update lead (with state validation)
-- `POST /api/v1/leads/{id}/assign/{user_id}` - Assign lead
-- `DELETE /api/v1/leads/{id}` - Delete lead
+### CRM
 
-### Tasks
-- `POST /api/v1/tasks` - Create task
-- `GET /api/v1/tasks` - List tasks (filtered by status, overdue)
-- `GET /api/v1/tasks/{id}` - Get task
-- `PATCH /api/v1/tasks/{id}` - Update task
-- `POST /api/v1/tasks/{id}/assign/{user_id}` - Assign task
-- `DELETE /api/v1/tasks/{id}` - Delete task
+- `customers`, `leads`, `tasks` CRUD routes under `/api/v1/*`
 
 ### Events
-- `POST /api/v1/events` - Create event
-- `GET /api/v1/events` - List events (filtered by type, entity, unprocessed)
-- `GET /api/v1/events/{id}` - Get event
-- `PATCH /api/v1/events/{id}` - Mark event as processed
-- `GET /api/v1/events/audit-trail/{entity_type}/{entity_id}` - Get audit trail
+
+- `POST /api/v1/events`
+- `GET /api/v1/events`
+- `GET /api/v1/events/{event_id}`
+- `PATCH /api/v1/events/{event_id}`
+- `GET /api/v1/events/audit-trail/{entity_type}/{entity_id}`
 
 ### Workflows
-- `POST /api/v1/workflows` - Create workflow
-- `GET /api/v1/workflows` - List workflows
-- `GET /api/v1/workflows/{id}` - Get workflow
-- `PATCH /api/v1/workflows/{id}` - Update/Activate workflow
-- `POST /api/v1/workflows/{id}/test` - Test workflow evaluation
 
-## Multi-Tenancy
+- legacy workflow routes: `/api/v1/workflows/*`
+- workflow-definition CRUD: `/api/v1/workflow-definitions/*`
 
-Every table has a `business_id` foreign key. All queries automatically filter by the current user's `business_id`, enforced at the repository layer. This prevents data leaks between businesses by design.
+### Metrics
 
-```python
-# Example: Get lead for business
-lead = repository.get(business_id=current_user.business_id, entity_id=lead_id)
-```
+- `GET /api/v1/metrics`
+  - returns aggregate run/action/definition counts
+  - scoped to caller tenant (`business_id` optional but must match caller)
 
-## Role-Based Access Control
+## Multi-Tenancy and RBAC
 
-Three roles with varying permissions:
+- Every critical query is tenant-scoped by `business_id`
+- Context resolution enforces tenant filtering on entity loads
+- Roles: `owner`, `manager`, `staff`
+- Privileged actions (definition mutation, certain event operations) use role guards
 
-- **Owner**: Full access to all entities, can permanently delete data
-- **Manager**: Can create/assign/edit entities, cannot permanently delete
-- **Staff**: Can view assigned items, update own status, cannot assign/create
+## Next Hardening Targets
 
-RBAC is enforced at the service layer with explicit role checks.
-
-## Development Note
-
-This project is intentionally being built as a systems-focused backend platform, not as a UI-first prototype. The goal is to establish a strong architectural foundation before introducing advanced workflow tooling, integrations, or AI-assisted features.
-
-The codebase prioritizes:
-- Clear separation of concerns
-- Multi-tenant safety by design
-- Comprehensive testing
-- Documented API contracts
-- Operational reliability
+- metrics export pipeline (Prometheus/CloudWatch/Datadog)
+- per-tenant rate limiting and backpressure controls
+- production dashboards/alerting built on emitted metrics
 
 ---
 
-**Status**: In active development | **Last Updated**: April 20, 2026
+**Status**: Active development backend platform  
+**Last Updated**: April 22, 2026
 
