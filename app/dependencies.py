@@ -1,13 +1,22 @@
 """Dependencies for FastAPI routes."""
 
-from fastapi import HTTPException, Request, status
-from jose import JWTError
+from typing import Annotated
+from uuid import UUID
 
+from fastapi import Depends, HTTPException, Request, status
+from jose import JWTError
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
 from app.core.security import decode_token
+from app.models.user import User
 from app.schemas.auth import CurrentUser
 
 
-def get_current_user(request: Request) -> CurrentUser:
+def get_current_user(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> CurrentUser:
     """Extract and validate JWT token from request.
     
     🧨 CRITICAL: Attaches user context to every request
@@ -49,10 +58,38 @@ def get_current_user(request: Request) -> CurrentUser:
             detail="Invalid token claims",
         )
 
+    try:
+        user_uuid = UUID(str(user_id))
+        business_uuid = UUID(str(business_id))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token claims",
+        ) from exc
+
+    # Authoritative role/user state comes from the DB.
+    # This prevents stale tokens without role claims from downgrading users to "staff".
+    user = (
+        db.query(User)
+        .filter(
+            User.id == user_uuid,
+            User.business_id == business_uuid,
+            User.email == email,
+            User.is_active.is_(True),
+        )
+        .first()
+    )
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token subject",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return CurrentUser(
-        user_id=user_id,
-        business_id=business_id,
-        email=email,
-        role=payload.get("role", "staff"),
-        full_name=payload.get("full_name", ""),
+        user_id=str(user.id),
+        business_id=str(user.business_id),
+        email=user.email,
+        role=user.role,
+        full_name=user.full_name,
     )

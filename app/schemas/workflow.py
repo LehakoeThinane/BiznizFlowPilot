@@ -26,7 +26,7 @@ class WorkflowActionResponse(WorkflowActionCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    workflow_id: UUID
+    workflow_id: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
 

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.core.enums import EventStatus, EventType, WorkflowRunStatus
@@ -13,7 +14,22 @@ from app.models import WorkflowAction, WorkflowDefinition, WorkflowRun
 from app.repositories.event import EventRepository
 from app.services.event import EventService
 from app.workflow_engine import DatabaseDefinitionProvider, InMemoryDefinitionProvider, WorkflowDispatcher
-from app.workers.event_dispatch import process_next_event_for_business
+from app.workers import event_dispatch
+from app.workers.event_dispatch import execute_available_runs_for_business, process_next_event_for_business
+
+
+class _FixedSessionContext:
+    """Context manager wrapper that returns a provided SQLAlchemy session."""
+
+    def __init__(self, session: Session):
+        self._session = session
+
+    def __enter__(self) -> Session:
+        return self._session
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        _ = exc_type, exc, tb
+        return False
 
 
 class TestWorkflowDispatcher:
@@ -468,3 +484,144 @@ class TestWorkerDispatchLoop:
         assert refreshed_event.status == EventStatus.DISPATCHED
         assert len(runs) == 1
         assert runs[0].workflow_definition_id == definition.id
+
+
+class TestDispatchExecutionBridge:
+    """Tests for dispatch task -> execute task wiring."""
+
+    def test_dispatch_task_enqueues_execution_when_runs_created(
+        self,
+        test_db: Session,
+        owner_user,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        event_service = EventService(test_db)
+        event_service.create_event(
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            entity_type="lead",
+            entity_id=uuid4(),
+            actor_id=owner_user.user_id,
+        )
+        definition = WorkflowDefinition(
+            id=uuid4(),
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            is_active=True,
+            name="Bridge Definition",
+            config={"actions": [{"action_type": "log", "message": "run"}]},
+        )
+        test_db.add(definition)
+        test_db.commit()
+
+        monkeypatch.setattr(
+            event_dispatch,
+            "SessionLocal",
+            lambda: _FixedSessionContext(test_db),
+        )
+
+        enqueue_calls: list[str] = []
+
+        def _delay(business_id: str) -> None:
+            enqueue_calls.append(business_id)
+
+        monkeypatch.setattr(
+            event_dispatch,
+            "execute_available_runs_task",
+            SimpleNamespace(delay=_delay),
+        )
+
+        result = event_dispatch.dispatch_next_event_task.run(
+            business_id=str(owner_user.business_id),
+            worker_id="dispatch-test-worker",
+        )
+
+        assert result["claimed"] is True
+        assert result["runs_created"] == 1
+        assert enqueue_calls == [str(owner_user.business_id)]
+
+    def test_dispatch_task_skips_enqueue_when_no_runs_created(
+        self,
+        test_db: Session,
+        owner_user,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.setattr(
+            event_dispatch,
+            "SessionLocal",
+            lambda: _FixedSessionContext(test_db),
+        )
+
+        enqueue_calls: list[str] = []
+
+        def _delay(business_id: str) -> None:
+            enqueue_calls.append(business_id)
+
+        monkeypatch.setattr(
+            event_dispatch,
+            "execute_available_runs_task",
+            SimpleNamespace(delay=_delay),
+        )
+
+        result = event_dispatch.dispatch_next_event_task.run(
+            business_id=str(owner_user.business_id),
+            worker_id="dispatch-test-worker",
+        )
+
+        assert result["claimed"] is False
+        assert result["runs_created"] == 0
+        assert enqueue_calls == []
+
+    def test_execute_available_runs_respects_max_runs(
+        self,
+        test_db: Session,
+        owner_user,
+    ):
+        definition = WorkflowDefinition(
+            id=uuid4(),
+            business_id=owner_user.business_id,
+            event_type=EventType.LEAD_CREATED,
+            is_active=True,
+            name="Execute Loop Definition",
+            config={"actions": [{"action_type": "log", "message": "ok"}]},
+        )
+        test_db.add(definition)
+        test_db.commit()
+
+        dispatcher = WorkflowDispatcher(
+            db=test_db,
+            definition_provider=InMemoryDefinitionProvider([definition]),
+        )
+        event_service = EventService(test_db)
+        for _ in range(3):
+            event = event_service.create_event(
+                business_id=owner_user.business_id,
+                event_type=EventType.LEAD_CREATED,
+                entity_type="lead",
+                entity_id=uuid4(),
+                actor_id=owner_user.user_id,
+            )
+            dispatcher.dispatch(event)
+            test_db.commit()
+
+        summary = execute_available_runs_for_business(
+            db=test_db,
+            business_id=owner_user.business_id,
+            max_runs=2,
+        )
+
+        runs = (
+            test_db.query(WorkflowRun)
+            .filter(WorkflowRun.business_id == owner_user.business_id)
+            .all()
+        )
+        completed_count = sum(1 for run in runs if run.status == WorkflowRunStatus.COMPLETED)
+        queued_count = sum(1 for run in runs if run.status == WorkflowRunStatus.QUEUED)
+
+        assert summary["processed_runs"] == 2
+        assert summary["max_runs"] == 2
+        assert summary["queue_drained"] is False
+        assert len(summary["run_ids"]) == 2
+        assert summary["last_run_status"] == WorkflowRunStatus.COMPLETED.value
+        assert completed_count == 2
+        assert queued_count == 1

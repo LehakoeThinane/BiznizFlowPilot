@@ -7,7 +7,6 @@ Workflows define automation rules:
 - Track execution results and status
 """
 
-from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import (
@@ -21,11 +20,12 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Uuid,
 )
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.orm import relationship
 
 from app.core.enums import ActionFailureType, EventType, WorkflowActionStatus, WorkflowRunStatus
-from app.models.base import BaseModel
+from app.models.base import BaseModel, enum_values
 
 
 class Workflow(BaseModel):
@@ -43,7 +43,7 @@ class Workflow(BaseModel):
     __tablename__ = "workflows"
 
     business_id = Column(
-        PG_UUID(as_uuid=True),
+        Uuid,
         ForeignKey("businesses.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -53,16 +53,13 @@ class Workflow(BaseModel):
     trigger_event_type = Column(String(100), nullable=False, index=True)
     enabled = Column(Boolean, default=True, nullable=False)
     order = Column(Integer, default=0, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        nullable=False,
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-        nullable=False,
+
+    # Relationship to workflow actions
+    actions = relationship(
+        "WorkflowAction",
+        foreign_keys="WorkflowAction.workflow_id",
+        order_by="WorkflowAction.order",
+        lazy="selectin",
     )
 
 
@@ -85,13 +82,13 @@ class WorkflowDefinition(BaseModel):
     )
 
     business_id = Column(
-        PG_UUID(as_uuid=True),
+        Uuid,
         ForeignKey("businesses.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     event_type = Column(
-        SAEnum(EventType, name="event_type_enum"),
+        SAEnum(EventType, name="event_type_enum", values_callable=enum_values),
         nullable=False,
         index=True,
     )
@@ -102,10 +99,8 @@ class WorkflowDefinition(BaseModel):
     deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
     # Legacy bridge while Workflow table is still used by CRUD endpoints.
-    # TODO: Remove in Phase 6 once Workflow CRUD endpoints are migrated to
-    # WorkflowDefinition.
     workflow_id = Column(
-        PG_UUID(as_uuid=True),
+        Uuid,
         ForeignKey("workflows.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -137,14 +132,14 @@ class WorkflowAction(BaseModel):
 
     # Legacy bridge to definition-time workflow actions.
     workflow_id = Column(
-        PG_UUID(as_uuid=True),
+        Uuid,
         ForeignKey("workflows.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
     # Run-level materialization target for Phase 5.
     run_id = Column(
-        PG_UUID(as_uuid=True),
+        Uuid,
         ForeignKey("workflow_runs.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
@@ -156,7 +151,7 @@ class WorkflowAction(BaseModel):
     execution_order = Column(Integer, nullable=True, index=True)
 
     status = Column(
-        SAEnum(WorkflowActionStatus, name="workflow_action_status"),
+        SAEnum(WorkflowActionStatus, name="workflow_action_status", values_callable=enum_values),
         nullable=False,
         default=WorkflowActionStatus.PENDING,
         server_default=WorkflowActionStatus.PENDING.value,
@@ -168,7 +163,7 @@ class WorkflowAction(BaseModel):
     executed_at = Column(DateTime(timezone=True), nullable=True, index=True)
     error = Column(Text, nullable=True)
     failure_type = Column(
-        SAEnum(ActionFailureType, name="workflow_action_failure_type"),
+        SAEnum(ActionFailureType, name="workflow_action_failure_type", values_callable=enum_values),
         nullable=True,
         index=True,
     )
@@ -208,38 +203,38 @@ class WorkflowRun(BaseModel):
 
     # Legacy bridge for existing workflow CRUD APIs.
     workflow_id = Column(
-        PG_UUID(as_uuid=True),
+        Uuid,
         ForeignKey("workflows.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
     workflow_definition_id = Column(
-        PG_UUID(as_uuid=True),
+        Uuid,
         ForeignKey("workflow_definitions.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
     business_id = Column(
-        PG_UUID(as_uuid=True),
+        Uuid,
         ForeignKey("businesses.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     event_id = Column(
-        PG_UUID(as_uuid=True),
+        Uuid,
         ForeignKey("events.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
     actor_id = Column(
-        PG_UUID(as_uuid=True),
+        Uuid,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
     status = Column(
-        SAEnum(WorkflowRunStatus, name="workflow_run_status"),
+        SAEnum(WorkflowRunStatus, name="workflow_run_status", values_callable=enum_values),
         nullable=False,
         default=WorkflowRunStatus.QUEUED,
         server_default=WorkflowRunStatus.QUEUED.value,
@@ -250,17 +245,6 @@ class WorkflowRun(BaseModel):
     results = Column(JSON, default=dict, nullable=False)
     started_at = Column(DateTime(timezone=True), nullable=True, index=True)
     finished_at = Column(DateTime(timezone=True), nullable=True, index=True)
-    created_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        nullable=False,
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-        nullable=False,
-    )
 
     @property
     def triggered_by_event_id(self) -> UUID | None:

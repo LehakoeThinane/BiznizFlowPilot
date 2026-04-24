@@ -11,8 +11,8 @@ from app.core.enums import EventStatus
 from app.core.database import SessionLocal
 from app.repositories.workflow import WorkflowActionRepository
 from app.services.event import EventService
+from app.workflow_engine import WorkflowDispatcher, WorkflowExecutor
 from app.workflow_engine.definition_provider import DatabaseDefinitionProvider, DefinitionProvider
-from app.workflow_engine import WorkflowDispatcher
 from app.workers.celery_app import celery_app
 
 
@@ -64,6 +64,43 @@ def process_next_event_for_business(
         raise
 
 
+def execute_available_runs_for_business(
+    db: Session,
+    business_id: UUID,
+    *,
+    max_runs: int = 25,
+) -> dict[str, object]:
+    """Execute queued runs for one business until the queue is drained or max_runs is hit."""
+    safe_max_runs = max(1, max_runs)
+    executor = WorkflowExecutor(db)
+
+    processed_runs = 0
+    processed_run_ids: list[str] = []
+    last_run_status: str | None = None
+
+    for _ in range(safe_max_runs):
+        result = executor.execute_next_run(business_id)
+        if not result.get("claimed"):
+            break
+
+        processed_runs += 1
+        run_id = result.get("run_id")
+        if isinstance(run_id, str):
+            processed_run_ids.append(run_id)
+        run_status = result.get("run_status")
+        last_run_status = run_status if isinstance(run_status, str) else last_run_status
+        db.commit()
+
+    return {
+        "business_id": str(business_id),
+        "processed_runs": processed_runs,
+        "run_ids": processed_run_ids,
+        "max_runs": safe_max_runs,
+        "queue_drained": processed_runs < safe_max_runs,
+        "last_run_status": last_run_status,
+    }
+
+
 @celery_app.task(bind=True, name="workflows.dispatch_next_event")
 def dispatch_next_event_task(self, business_id: str, worker_id: str | None = None) -> dict[str, object]:
     """Celery task wrapper for event dispatch loop."""
@@ -71,10 +108,30 @@ def dispatch_next_event_task(self, business_id: str, worker_id: str | None = Non
     resolved_worker_id = worker_id or self.request.id or "celery-worker"
 
     with SessionLocal() as db:
-        return process_next_event_for_business(
+        result = process_next_event_for_business(
             db=db,
             business_id=business_uuid,
             worker_id=resolved_worker_id,
+        )
+    if result.get("runs_created", 0):
+        execute_available_runs_task.delay(business_id)
+    return result
+
+
+@celery_app.task(bind=True, name="workflows.execute_available_runs")
+def execute_available_runs_task(
+    self,
+    business_id: str,
+    max_runs: int = 25,
+) -> dict[str, object]:
+    """Celery task wrapper to execute queued runs for one tenant."""
+    _ = self
+    business_uuid = UUID(business_id)
+    with SessionLocal() as db:
+        return execute_available_runs_for_business(
+            db=db,
+            business_id=business_uuid,
+            max_runs=max_runs,
         )
 
 

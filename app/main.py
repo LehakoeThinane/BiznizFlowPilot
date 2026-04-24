@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, customers, events, leads, metrics, tasks, workflow_definitions, workflows
+from app.api import auth, customers, events, leads, metrics, tasks, users, workflow_definitions, workflows
 from app.core.config import settings
 from app.core.exception_handlers import unhandled_exception_handler
 from app.dependencies import get_current_user
@@ -22,11 +22,11 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Application lifespan hooks."""
-    logger.info(f"Starting {settings.app_name} v{settings.version}")
-    logger.info(f"Environment: {settings.environment}")
-    logger.info(f"Debug mode: {settings.debug}")
+    logger.info("Starting %s v%s", settings.app_name, settings.version)
+    logger.info("Environment: %s", settings.environment)
+    logger.info("Debug mode: %s", settings.debug)
     yield
-    logger.info(f"Shutting down {settings.app_name}")
+    logger.info("Shutting down %s", settings.app_name)
 
 app = FastAPI(
     title=settings.app_name,
@@ -72,6 +72,7 @@ app.include_router(customers.router)
 app.include_router(events.router)
 app.include_router(leads.router)
 app.include_router(tasks.router)
+app.include_router(users.router)
 
 # Automation routes (auth required)
 app.include_router(workflows.router)
@@ -84,12 +85,8 @@ app.include_router(metrics.router)
 # ============================================================================
 
 
-@app.get(f"{settings.api_v1_prefix}/me")
-def get_current_user_info(current_user: CurrentUser = Depends(get_current_user)) -> dict:
-    """Get current authenticated user information.
-    
-    Protected route - requires valid JWT token.
-    """
+def _serialize_current_user(current_user: CurrentUser) -> dict:
+    """Normalize authenticated user response payload."""
     return {
         "user_id": current_user.user_id,
         "business_id": current_user.business_id,
@@ -97,6 +94,21 @@ def get_current_user_info(current_user: CurrentUser = Depends(get_current_user))
         "role": current_user.role,
         "full_name": current_user.full_name,
     }
+
+
+@app.get(f"{settings.api_v1_prefix}/me")
+def get_current_user_info(current_user: CurrentUser = Depends(get_current_user)) -> dict:
+    """Get current authenticated user information.
+    
+    Protected route - requires valid JWT token.
+    """
+    return _serialize_current_user(current_user)
+
+
+@app.get(f"{settings.api_v1_prefix}/users/me")
+def get_current_user_info_compat(current_user: CurrentUser = Depends(get_current_user)) -> dict:
+    """Compatibility alias for deployments using /api/v1/users/me."""
+    return _serialize_current_user(current_user)
 
 
 if __name__ == "__main__":

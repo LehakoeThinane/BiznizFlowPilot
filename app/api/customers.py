@@ -35,6 +35,8 @@ def create_customer(
         return customer
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -52,22 +54,19 @@ def list_customers(
     
     🧨 All roles can view customers in their business.
     """
-    try:
-        service = CustomerService(db)
+    service = CustomerService(db)
 
-        if name:
-            customers, total = service.search(current_user.business_id, current_user, name, skip=skip, limit=limit)
-        else:
-            customers, total = service.list(current_user.business_id, current_user, skip=skip, limit=limit)
+    if name:
+        customers, total = service.search(current_user.business_id, current_user, name, skip=skip, limit=limit)
+    else:
+        customers, total = service.list(current_user.business_id, current_user, skip=skip, limit=limit)
 
-        return CustomerListResponse(
-            items=[CustomerResponse.from_orm(c) for c in customers],
-            total=total,
-            skip=skip,
-            limit=limit,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return CustomerListResponse(
+        items=[CustomerResponse.model_validate(c) for c in customers],
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.get("/{customer_id}", response_model=CustomerResponse)
@@ -77,16 +76,13 @@ def get_customer(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Get customer by ID."""
-    try:
-        service = CustomerService(db)
-        customer = service.get(current_user.business_id, current_user, customer_id)
+    service = CustomerService(db)
+    customer = service.get(current_user.business_id, current_user, customer_id)
 
-        if not customer:
-            raise HTTPException(status_code=404, detail="Customer not found")
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
 
-        return customer
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return customer
 
 
 @router.patch("/{customer_id}", response_model=CustomerResponse)
@@ -111,6 +107,8 @@ def update_customer(
         return customer
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -137,6 +135,8 @@ def delete_customer(
         return {"message": "Customer deleted successfully"}
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

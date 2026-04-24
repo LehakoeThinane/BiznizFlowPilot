@@ -18,18 +18,6 @@ branch_labels = None
 depends_on = None
 
 
-event_type_enum = sa.Enum(
-    "lead_created",
-    "lead_status_changed",
-    "task_created",
-    "task_assigned",
-    "task_completed",
-    "workflow_triggered",
-    "custom",
-    name="event_type_enum",
-    create_type=False,
-)
-
 workflow_run_status = sa.Enum(
     "queued",
     "running",
@@ -72,10 +60,6 @@ def upgrade() -> None:
         op.execute("ALTER TYPE event_status RENAME VALUE 'processing' TO 'claimed'")
         op.execute("ALTER TYPE event_status RENAME VALUE 'processed' TO 'dispatched'")
 
-    if _table_exists("events"):
-        op.execute("UPDATE events SET status = 'claimed' WHERE status = 'processing'")
-        op.execute("UPDATE events SET status = 'dispatched' WHERE status = 'processed'")
-
     if is_postgres:
         workflow_run_status.create(bind, checkfirst=True)
 
@@ -83,7 +67,7 @@ def upgrade() -> None:
         op.create_table(
             "workflow_definitions",
             sa.Column("business_id", sa.UUID(), nullable=False),
-            sa.Column("event_type", event_type_enum, nullable=False),
+            sa.Column("event_type", sa.String(length=100), nullable=False),
             sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
             sa.Column("name", sa.String(length=255), nullable=False, server_default="Workflow Definition"),
             sa.Column("conditions", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
@@ -146,9 +130,20 @@ def upgrade() -> None:
         )
 
     if _column_exists("workflow_runs", "status"):
-        op.execute("UPDATE workflow_runs SET status = 'queued' WHERE status = 'pending'")
-        op.execute("UPDATE workflow_runs SET status = 'completed' WHERE status = 'success'")
         if is_postgres:
+            op.execute(
+                """
+                UPDATE workflow_runs
+                SET status = CASE
+                    WHEN status IN ('pending', 'queued') THEN 'queued'
+                    WHEN status IN ('success', 'completed') THEN 'completed'
+                    WHEN status = 'running' THEN 'running'
+                    WHEN status = 'failed' THEN 'failed'
+                    ELSE 'queued'
+                END
+                """
+            )
+            op.alter_column("workflow_runs", "status", server_default=None)
             op.alter_column(
                 "workflow_runs",
                 "status",
@@ -157,6 +152,10 @@ def upgrade() -> None:
                 postgresql_using="status::workflow_run_status",
                 nullable=False,
             )
+            op.alter_column("workflow_runs", "status", server_default=sa.text("'queued'"))
+        else:
+            op.execute("UPDATE workflow_runs SET status = 'queued' WHERE status = 'pending'")
+            op.execute("UPDATE workflow_runs SET status = 'completed' WHERE status = 'success'")
 
     if not _index_exists("workflow_runs", "ux_workflow_runs_event_definition"):
         op.create_index(
@@ -176,6 +175,7 @@ def downgrade() -> None:
         op.drop_index("ux_workflow_runs_event_definition", table_name="workflow_runs")
 
     if _table_exists("workflow_runs") and _column_exists("workflow_runs", "status") and is_postgres:
+        op.alter_column("workflow_runs", "status", server_default=None)
         op.alter_column(
             "workflow_runs",
             "status",
@@ -184,8 +184,19 @@ def downgrade() -> None:
             postgresql_using="status::text",
             nullable=False,
         )
-        op.execute("UPDATE workflow_runs SET status = 'pending' WHERE status = 'queued'")
-        op.execute("UPDATE workflow_runs SET status = 'success' WHERE status = 'completed'")
+        op.execute(
+            """
+            UPDATE workflow_runs
+            SET status = CASE
+                WHEN status = 'queued' THEN 'pending'
+                WHEN status = 'completed' THEN 'success'
+                WHEN status = 'running' THEN 'running'
+                WHEN status = 'failed' THEN 'failed'
+                ELSE 'pending'
+            END
+            """
+        )
+        op.alter_column("workflow_runs", "status", server_default=sa.text("'pending'"))
 
     if _table_exists("workflow_runs") and _column_exists("workflow_runs", "definition_snapshot"):
         op.drop_column("workflow_runs", "definition_snapshot")
@@ -211,7 +222,3 @@ def downgrade() -> None:
         workflow_run_status.drop(bind, checkfirst=True)
         op.execute("ALTER TYPE event_status RENAME VALUE 'claimed' TO 'processing'")
         op.execute("ALTER TYPE event_status RENAME VALUE 'dispatched' TO 'processed'")
-
-    if _table_exists("events"):
-        op.execute("UPDATE events SET status = 'processing' WHERE status = 'claimed'")
-        op.execute("UPDATE events SET status = 'processed' WHERE status = 'dispatched'")

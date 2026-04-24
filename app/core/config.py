@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     stale_claim_check_interval_seconds: int = 60
     action_retry_check_interval_seconds: int = 60
     stale_run_check_interval_seconds: int = 300
+    followup_check_interval_seconds: int = 3600  # 1 hour
 
     # Email delivery
     smtp_host: str = "localhost"

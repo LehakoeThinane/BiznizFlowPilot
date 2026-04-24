@@ -89,7 +89,13 @@ class AuthService:
             self.db.commit()
 
             # Generate tokens
-            return self._create_tokens(user_id=user.id, business_id=business.id, email=email)
+            return self._create_tokens(
+                user_id=user.id,
+                business_id=business.id,
+                email=email,
+                role="owner",
+                full_name=f"{first_name} {last_name}",
+            )
 
         except Exception as e:
             self.db.rollback()
@@ -126,6 +132,8 @@ class AuthService:
             user_id=user.id,
             business_id=user.business_id,
             email=user.email,
+            role=user.role,
+            full_name=user.full_name,
         )
 
     def validate_user(
@@ -157,6 +165,8 @@ class AuthService:
         user_id: UUID,
         business_id: UUID,
         email: str,
+        role: str = "staff",
+        full_name: str = "",
     ) -> TokenResponse:
         """Create access and refresh tokens.
         
@@ -164,6 +174,8 @@ class AuthService:
             user_id: User ID
             business_id: Business ID
             email: User email
+            role: User role (owner, manager, staff)
+            full_name: User full name
             
         Returns:
             TokenResponse
@@ -174,6 +186,8 @@ class AuthService:
             "user_id": str(user_id),
             "business_id": str(business_id),
             "email": email,
+            "role": role,
+            "full_name": full_name,
         }
 
         # Create tokens

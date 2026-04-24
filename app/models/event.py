@@ -1,10 +1,9 @@
 """Event model - audit and workflow trigger tracking."""
 
-from sqlalchemy import Column, DateTime, Enum as SAEnum, JSON, ForeignKey, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, DateTime, Enum as SAEnum, JSON, ForeignKey, String, Uuid
 
 from app.core.enums import EventStatus, EventType
-from app.models.base import BaseModel
+from app.models.base import BaseModel, enum_values
 
 
 class Event(BaseModel):
@@ -18,14 +17,14 @@ class Event(BaseModel):
     __tablename__ = "events"
 
     business_id = Column(
-        UUID(as_uuid=True),
+        Uuid,
         nullable=False,
         index=True,
         doc="Tenant ID - CRITICAL FOR MULTI-TENANCY",
     )
 
     actor_id = Column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -33,7 +32,7 @@ class Event(BaseModel):
     )
 
     event_type = Column(
-        SAEnum(EventType, name="event_type_enum"),
+        SAEnum(EventType, name="event_type_enum", values_callable=enum_values),
         nullable=False,
         index=True,
         doc="Canonical event type for workflow triggers",
@@ -47,7 +46,7 @@ class Event(BaseModel):
     )
 
     entity_id = Column(
-        UUID(as_uuid=True),
+        Uuid,
         nullable=False,
         index=True,
         doc="ID of the entity that triggered the event",
@@ -66,7 +65,7 @@ class Event(BaseModel):
     )
 
     status = Column(
-        SAEnum(EventStatus, name="event_status"),
+        SAEnum(EventStatus, name="event_status", values_callable=enum_values),
         nullable=False,
         default=EventStatus.PENDING,
         server_default=EventStatus.PENDING.value,

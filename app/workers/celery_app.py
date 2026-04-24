@@ -33,6 +33,11 @@ celery_app.conf.update(
             "schedule": timedelta(seconds=settings.stale_run_check_interval_seconds),
             "args": (30,),
         },
+        "process-followups": {
+            "task": "ops.process_followups",
+            "schedule": timedelta(seconds=settings.followup_check_interval_seconds),
+            "args": (24,),
+        },
     },
 )
 

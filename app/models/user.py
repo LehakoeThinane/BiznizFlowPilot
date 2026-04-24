@@ -1,7 +1,6 @@
 """User model - represents a person with access to the system."""
 
-from sqlalchemy import Column, ForeignKey, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, Column, ForeignKey, String, Uuid
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseModel
@@ -13,7 +12,7 @@ class User(BaseModel):
     __tablename__ = "users"
 
     business_id = Column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("businesses.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -54,7 +53,7 @@ class User(BaseModel):
     )
 
     is_active = Column(
-        String(50),
+        Boolean,
         default=True,
         nullable=False,
         index=True,

@@ -72,6 +72,38 @@ migrations/         # Alembic revisions
 
 ## Running Locally
 
+### Docker Database
+
+If you want a lighter setup than the installed PostgreSQL/pgAdmin desktop apps, run PostgreSQL in Docker:
+
+```powershell
+docker compose up -d db
+```
+
+Optional pgAdmin container:
+
+```powershell
+docker compose --profile tools up -d
+```
+
+The database connection string stays:
+
+```text
+postgresql://postgres:020890@localhost:5433/biznizflow_test
+```
+
+To stop and remove the containers:
+
+```powershell
+docker compose down
+```
+
+If you change the database password or want a fresh local database, reset the data volume:
+
+```powershell
+docker compose down -v
+```
+
 ### Setup
 
 ```bash
@@ -79,8 +111,14 @@ python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
-alembic upgrade head
-uvicorn app.main:app --reload
+alembic -c migrations/alembic.ini upgrade head
+uvicorn app.main:app --reload --reload-dir app
+```
+
+Or on Windows:
+
+```powershell
+.\scripts\start-backend.ps1
 ```
 
 ### Tests

@@ -4,12 +4,15 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Column, DateTime, String, func
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import Column, DateTime, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import Uuid
 
-# Declarative base for all ORM models
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    """Declarative base for all ORM models."""
+
+    pass
 
 
 class BaseModel(Base):
@@ -18,7 +21,7 @@ class BaseModel(Base):
     __abstract__ = True
 
     id = Column(
-        UUID(as_uuid=True),
+        Uuid,
         primary_key=True,
         default=uuid.uuid4,
         doc="Unique identifier",
@@ -26,6 +29,7 @@ class BaseModel(Base):
 
     created_at = Column(
         DateTime(timezone=True),
+        default=func.now(),
         server_default=func.now(),
         nullable=False,
         doc="Creation timestamp",
@@ -33,6 +37,7 @@ class BaseModel(Base):
 
     updated_at = Column(
         DateTime(timezone=True),
+        default=func.now(),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
@@ -65,3 +70,13 @@ class BaseModel(Base):
     def __repr__(self) -> str:
         """String representation."""
         return f"<{self.__class__.__name__} id={self.id}>"
+
+
+def enum_values(enum_cls: type) -> list[str]:
+    """Return enum values for SQLAlchemy Enum columns.
+
+    SQLAlchemy's native Enum type defaults to binding enum member names.
+    The database schema in this project stores the lower-case enum values,
+    so we explicitly tell SQLAlchemy to persist those values instead.
+    """
+    return [member.value for member in enum_cls]

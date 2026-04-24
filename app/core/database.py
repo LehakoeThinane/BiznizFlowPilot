@@ -1,5 +1,7 @@
 """Database connection and session management."""
 
+from collections.abc import Generator
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -22,7 +24,7 @@ SessionLocal = sessionmaker(
 )
 
 
-def get_db() -> Session:
+def get_db() -> Generator[Session, None, None]:
     """Get database session for dependency injection."""
     db = SessionLocal()
     try:

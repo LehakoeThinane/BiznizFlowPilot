@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8765";
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 interface BackendMetricsResponse {
   runs: {
     running: number;
-  };
-  definitions: {
-    total: number;
   };
 }
 
@@ -31,8 +28,13 @@ export async function GET(request: NextRequest) {
       Accept: "application/json",
     };
 
-    const [metricsResponse, leadsResponse, tasksResponse] = await Promise.all([
+    const [metricsResponse, workflowsResponse, leadsResponse, tasksResponse] = await Promise.all([
       fetch(`${BACKEND_BASE_URL}/api/v1/metrics`, {
+        method: "GET",
+        headers,
+        cache: "no-store",
+      }),
+      fetch(`${BACKEND_BASE_URL}/api/v1/workflows?skip=0&limit=1`, {
         method: "GET",
         headers,
         cache: "no-store",
@@ -49,9 +51,19 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
-    if (!metricsResponse.ok || !leadsResponse.ok || !tasksResponse.ok) {
+    if (
+      !metricsResponse.ok ||
+      !workflowsResponse.ok ||
+      !leadsResponse.ok ||
+      !tasksResponse.ok
+    ) {
       const status =
-        [metricsResponse.status, leadsResponse.status, tasksResponse.status].find(
+        [
+          metricsResponse.status,
+          workflowsResponse.status,
+          leadsResponse.status,
+          tasksResponse.status,
+        ].find(
           (code) => code >= 400 && code < 500,
         ) ?? 502;
       return NextResponse.json(
@@ -60,14 +72,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const [metrics, leads, tasks] = (await Promise.all([
+    const [metrics, workflows, leads, tasks] = (await Promise.all([
       metricsResponse.json(),
+      workflowsResponse.json(),
       leadsResponse.json(),
       tasksResponse.json(),
-    ])) as [BackendMetricsResponse, BackendListResponse, BackendListResponse];
+    ])) as [
+      BackendMetricsResponse,
+      BackendListResponse,
+      BackendListResponse,
+      BackendListResponse,
+    ];
 
     return NextResponse.json({
-      totalWorkflows: metrics.definitions.total,
+      totalWorkflows: workflows.total,
       activeRuns: metrics.runs.running,
       pendingTasks: tasks.total,
       totalLeads: leads.total,

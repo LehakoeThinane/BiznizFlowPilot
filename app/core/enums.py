@@ -45,8 +45,10 @@ class EventType(str, Enum):
 
     LEAD_CREATED = "lead_created"
     LEAD_STATUS_CHANGED = "lead_status_changed"
+    LEAD_IDLE = "lead_idle"
     TASK_CREATED = "task_created"
     TASK_ASSIGNED = "task_assigned"
     TASK_COMPLETED = "task_completed"
+    TASK_OVERDUE = "task_overdue"
     WORKFLOW_TRIGGERED = "workflow_triggered"
     CUSTOM = "custom"

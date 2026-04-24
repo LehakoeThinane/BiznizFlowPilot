@@ -13,6 +13,33 @@
 
 ## Local Development Setup
 
+### Docker Database Option
+
+If you do not want to run the PostgreSQL desktop app locally, start the database in Docker instead:
+
+```powershell
+docker compose up -d db
+```
+
+Optional browser-based pgAdmin:
+
+```powershell
+docker compose --profile tools up -d
+```
+
+If PostgreSQL rejects the password after you change compose settings, recreate the data volume:
+
+```powershell
+docker compose down -v
+docker compose --profile tools up -d
+```
+
+Use this database URL in your backend environment:
+
+```text
+postgresql://postgres:020890@localhost:5433/biznizflow_test
+```
+
 ### 1. Clone & Setup Virtual Environment
 
 ```bash
@@ -39,37 +66,37 @@ pip install -r requirements.txt
 ### 3. Setup Database
 
 ```bash
-# Create PostgreSQL database
-createdb biznizflowpilot_db
-
 # Copy environment file
 cp .env.example .env
 
-# Edit .env with your database credentials
-# DATABASE_URL=postgresql://username:password@localhost:5432/biznizflowpilot_db
+# For Docker PostgreSQL, set DATABASE_URL to:
+# postgresql://postgres:020890@localhost:5433/biznizflow_test
 ```
 
 ### 4. Run Migrations
 
 ```bash
-# Create initial migration
-alembic revision --autogenerate -m "Initial migration"
-
 # Apply migrations
-alembic upgrade head
+alembic -c migrations\alembic.ini upgrade head
 ```
 
 ### 5. Run Development Server
 
 ```bash
 # Start FastAPI server (starts on http://localhost:8000)
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --reload-dir app
 
 # In another terminal, start Redis
 redis-server
 
 # In another terminal, start Celery worker
 celery -A app.workers.celery_app worker --loglevel=info
+```
+
+On Windows, you can use the project helper script from the repo root:
+
+```powershell
+.\scripts\start-backend.ps1
 ```
 
 ---

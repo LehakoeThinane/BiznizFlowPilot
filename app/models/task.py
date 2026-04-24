@@ -1,9 +1,6 @@
 """Task model - work item entity."""
 
-from datetime import datetime
-
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, DateTime, ForeignKey, String, Text, Uuid
 
 from app.models.base import BaseModel
 
@@ -31,14 +28,15 @@ class Task(BaseModel):
     }
 
     business_id = Column(
-        UUID(as_uuid=True),
+        Uuid,
+        ForeignKey("businesses.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Tenant ID - CRITICAL FOR MULTI-TENANCY",
     )
 
     lead_id = Column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("leads.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
@@ -46,7 +44,7 @@ class Task(BaseModel):
     )
 
     assigned_to = Column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,

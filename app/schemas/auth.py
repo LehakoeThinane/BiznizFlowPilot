@@ -31,19 +31,6 @@ class TokenResponse(BaseModel):
     expires_in: int
 
 
-class UserResponse(BaseModel):
-    """User response (no password)."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    business_id: UUID
-    email: str
-    first_name: str
-    last_name: str
-    role: str
-    is_active: bool
-
 class CurrentUser(BaseModel):
     """Current authenticated user info (from JWT)."""
 

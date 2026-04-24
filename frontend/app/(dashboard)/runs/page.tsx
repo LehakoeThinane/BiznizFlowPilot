@@ -12,6 +12,8 @@ import type {
 } from "@/types/api";
 
 type RunFilter = "all" | "pending" | "running" | "completed" | "failed";
+type RunSortDirection = "desc" | "asc";
+type WorkflowOption = { id: string; name: string };
 
 const REFRESH_SECONDS = 10;
 
@@ -79,6 +81,22 @@ function durationText(run: WorkflowRun): string {
   return `${minutes}m ${seconds}s`;
 }
 
+function formatErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (error && typeof error === "object" && "message" in error) {
+    const candidate = (error as { message?: unknown }).message;
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate;
+    }
+  }
+  return fallback;
+}
+
 function isWorkflowRunPayload(value: unknown): value is WorkflowRun {
   if (!value || typeof value !== "object") {
     return false;
@@ -87,23 +105,41 @@ function isWorkflowRunPayload(value: unknown): value is WorkflowRun {
   return typeof candidate.id === "string" && typeof candidate.status === "string";
 }
 
+function csvValue(value: string): string {
+  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
+    return `"${value.replaceAll('"', '""')}"`;
+  }
+  return value;
+}
+
+function downloadCsv(filename: string, rows: string[][]): void {
+  const csvBody = rows.map((row) => row.map(csvValue).join(",")).join("\n");
+  const blob = new Blob([csvBody], { type: "text/csv;charset=utf-8;" });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export default function WorkflowRunsPage() {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [workflowNameMap, setWorkflowNameMap] = useState<Record<string, string>>({});
+  const [workflowOptions, setWorkflowOptions] = useState<WorkflowOption[]>([]);
   const [filter, setFilter] = useState<RunFilter>("all");
+  const [workflowFilter, setWorkflowFilter] = useState("all");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [sortDirection, setSortDirection] = useState<RunSortDirection>("desc");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [secondsUntilRefresh, setSecondsUntilRefresh] = useState(REFRESH_SECONDS);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
-
-  const hasActiveRuns = useMemo(
-    () => runs.some((run) => run.status === "queued" || run.status === "running"),
-    [runs],
-  );
-
-  const shouldAutoRefresh = hasActiveRuns || filter === "running" || filter === "pending";
 
   const loadRuns = useCallback(
     async (mode: "initial" | "refresh" | "manual" = "initial") => {
@@ -150,12 +186,16 @@ export default function WorkflowRunsPage() {
         }
 
         const map: Record<string, string> = {};
+        const options: WorkflowOption[] = [];
         for (const workflow of workflowsResponse.workflows as Workflow[]) {
           map[workflow.id] = workflow.name;
+          options.push({ id: workflow.id, name: workflow.name });
         }
+        options.sort((left, right) => left.name.localeCompare(right.name));
 
         setRuns(runsPayload.runs);
         setWorkflowNameMap(map);
+        setWorkflowOptions(options);
         setSecondsUntilRefresh(REFRESH_SECONDS);
       } catch (requestError) {
         if (requestError instanceof ApiError && requestError.status === 401) {
@@ -163,11 +203,7 @@ export default function WorkflowRunsPage() {
           window.location.replace("/login");
           return;
         }
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "Unable to load workflow runs",
-        );
+        setError(formatErrorMessage(requestError, "Unable to load workflow runs"));
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);
@@ -210,15 +246,92 @@ export default function WorkflowRunsPage() {
 
       setSelectedRun(payload);
     } catch (detailError) {
-      setError(
-        detailError instanceof Error
-          ? detailError.message
-          : "Unable to load run details",
-      );
+      setError(formatErrorMessage(detailError, "Unable to load run details"));
     } finally {
       setIsDetailsLoading(false);
     }
   }, []);
+
+  const filteredRuns = useMemo(() => {
+    let nextRuns = [...runs];
+
+    if (workflowFilter !== "all") {
+      nextRuns = nextRuns.filter((run) => run.workflow_id === workflowFilter);
+    }
+
+    const startTimestamp = startDate
+      ? new Date(`${startDate}T00:00:00`).getTime()
+      : null;
+    const endTimestamp = endDate
+      ? new Date(`${endDate}T23:59:59.999`).getTime()
+      : null;
+
+    if (startTimestamp !== null || endTimestamp !== null) {
+      nextRuns = nextRuns.filter((run) => {
+        const runTimestamp = new Date(startedAt(run)).getTime();
+        if (Number.isNaN(runTimestamp)) {
+          return false;
+        }
+        if (startTimestamp !== null && runTimestamp < startTimestamp) {
+          return false;
+        }
+        if (endTimestamp !== null && runTimestamp > endTimestamp) {
+          return false;
+        }
+        return true;
+      });
+    }
+
+    nextRuns.sort((left, right) => {
+      const leftTime = new Date(startedAt(left)).getTime();
+      const rightTime = new Date(startedAt(right)).getTime();
+      const safeLeft = Number.isNaN(leftTime) ? 0 : leftTime;
+      const safeRight = Number.isNaN(rightTime) ? 0 : rightTime;
+      return safeLeft - safeRight;
+    });
+
+    if (sortDirection === "desc") {
+      nextRuns.reverse();
+    }
+
+    return nextRuns;
+  }, [endDate, runs, sortDirection, startDate, workflowFilter]);
+
+  const hasActiveRuns = useMemo(
+    () => filteredRuns.some((run) => run.status === "queued" || run.status === "running"),
+    [filteredRuns],
+  );
+
+  const shouldAutoRefresh = hasActiveRuns || filter === "running" || filter === "pending";
+
+  const exportRunsCsv = useCallback(() => {
+    if (filteredRuns.length === 0) {
+      return;
+    }
+
+    const rows: string[][] = [
+      ["Run ID", "Workflow", "Status", "Started", "Completed", "Duration", "Event ID", "Error"],
+    ];
+
+    for (const run of filteredRuns) {
+      const workflowName = run.workflow_id
+        ? (workflowNameMap[run.workflow_id] ?? run.workflow_id)
+        : "Unknown workflow";
+      rows.push([
+        run.id,
+        workflowName,
+        statusLabel(run.status),
+        formatDate(startedAt(run)),
+        formatDate(completedAt(run)),
+        durationText(run),
+        run.event_id ?? "",
+        run.error_message ?? "",
+      ]);
+    }
+
+    const datePart = new Date().toISOString().slice(0, 10);
+    downloadCsv(`workflow-runs-${datePart}.csv`, rows);
+  }, [filteredRuns, workflowNameMap]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -260,22 +373,74 @@ export default function WorkflowRunsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-slate-700" htmlFor="status-filter">
-            Status
-          </label>
+        <div className="flex flex-wrap items-center gap-2">
           <select
             id="status-filter"
             className="rounded-md border border-border bg-white px-3 py-2 text-sm"
             value={filter}
             onChange={(event) => setFilter(event.target.value as RunFilter)}
           >
-            <option value="all">All</option>
+            <option value="all">All statuses</option>
             <option value="pending">Pending</option>
             <option value="running">Running</option>
             <option value="completed">Completed</option>
             <option value="failed">Failed</option>
           </select>
+          <select
+            className="rounded-md border border-border bg-white px-3 py-2 text-sm"
+            value={workflowFilter}
+            onChange={(event) => setWorkflowFilter(event.target.value)}
+          >
+            <option value="all">All workflows</option>
+            {workflowOptions.map((workflow) => (
+              <option key={workflow.id} value={workflow.id}>
+                {workflow.name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(event) => setStartDate(event.target.value)}
+            className="rounded-md border border-border bg-white px-3 py-2 text-sm"
+            aria-label="Start date"
+          />
+          <input
+            type="date"
+            value={endDate}
+            onChange={(event) => setEndDate(event.target.value)}
+            className="rounded-md border border-border bg-white px-3 py-2 text-sm"
+            aria-label="End date"
+          />
+          <button
+            type="button"
+            onClick={() =>
+              setSortDirection((previous) => (previous === "desc" ? "asc" : "desc"))
+            }
+            className="rounded-md border border-border px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+          >
+            {sortDirection === "desc" ? "Newest First" : "Oldest First"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setWorkflowFilter("all");
+              setStartDate("");
+              setEndDate("");
+              setSortDirection("desc");
+            }}
+            className="rounded-md border border-border px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={exportRunsCsv}
+            disabled={filteredRuns.length === 0}
+            className="rounded-md border border-border px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          >
+            Export CSV
+          </button>
           <button
             type="button"
             onClick={() => void loadRuns("manual")}
@@ -287,9 +452,13 @@ export default function WorkflowRunsPage() {
         </div>
       </div>
 
+      <p className="text-sm text-muted">
+        Showing {filteredRuns.length} of {runs.length} run{runs.length === 1 ? "" : "s"}.
+      </p>
+
       {error ? (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <p>{error}</p>
+          <p>{formatErrorMessage(error, "Unable to load workflow runs")}</p>
           <button
             type="button"
             className="mt-2 rounded-md border border-red-300 px-3 py-1 text-xs font-medium hover:bg-red-100"
@@ -304,9 +473,9 @@ export default function WorkflowRunsPage() {
         <div className="rounded-lg border border-border bg-surface p-5 text-sm text-muted">
           Loading workflow runs...
         </div>
-      ) : runs.length === 0 ? (
+      ) : filteredRuns.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-5 text-sm text-muted">
-          No workflow runs found for the selected status.
+          No workflow runs found for the current filters.
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border bg-surface">
@@ -321,7 +490,7 @@ export default function WorkflowRunsPage() {
               </tr>
             </thead>
             <tbody>
-              {runs.map((run) => (
+              {filteredRuns.map((run) => (
                 <tr
                   key={run.id}
                   className="cursor-pointer border-t border-border hover:bg-slate-50"

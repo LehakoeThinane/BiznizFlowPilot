@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -17,7 +17,17 @@ class TaskService:
     """Task service with RBAC and task management.
     
     🧨 RBAC: Owner/Manager can create/assign. Staff can view own and complete.
+    State transitions: pending → in_progress → completed
+    Overdue is a computed status based on due_date.
     """
+
+    # Valid state transitions for tasks
+    VALID_TRANSITIONS = {
+        "pending": ["in_progress", "completed"],
+        "in_progress": ["completed", "pending"],
+        "completed": [],
+        "overdue": ["in_progress", "completed"],
+    }
 
     def __init__(self, db: Session):
         """Initialize service."""
@@ -91,7 +101,7 @@ class TaskService:
         else:
             # Staff only sees own overdue tasks
             all_tasks = self.repo.get_assigned_to(business_id=business_id, assigned_to=current_user.id)
-            overdue = [t for t in all_tasks if t.due_date and t.due_date < datetime.now(tz=None) and t.status != "completed"]
+            overdue = [t for t in all_tasks if t.due_date and t.due_date < datetime.now(timezone.utc) and t.status != "completed"]
             tasks = overdue[skip:skip+limit]
             total = len(overdue)
 
@@ -110,11 +120,16 @@ class TaskService:
         if current_user.role == "staff" and task.assigned_to != current_user.id:
             raise ValueError("Permission denied: Staff can only update their own tasks")
 
+        # Validate state transition if status is being updated
+        if data.status is not None and data.status != task.status:
+            if not self._is_valid_transition(task.status, data.status):
+                raise ValueError(f"Invalid state transition: {task.status} → {data.status}")
+
         update_data = data.model_dump(exclude_unset=True)
 
         # Mark completed_at when status changes to completed
         if data.status == "completed":
-            update_data["completed_at"] = datetime.now(tz=None)
+            update_data["completed_at"] = datetime.now(timezone.utc)
 
         return self.repo.update(business_id=business_id, entity_id=task_id, **update_data)
 
@@ -146,3 +161,8 @@ class TaskService:
 
         self.repo.delete(business_id=business_id, entity_id=task_id)
         return True
+
+    @staticmethod
+    def _is_valid_transition(current_status: str, new_status: str) -> bool:
+        """Check if state transition is valid."""
+        return new_status in TaskService.VALID_TRANSITIONS.get(current_status, [])

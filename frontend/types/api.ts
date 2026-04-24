@@ -5,6 +5,14 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface RegisterRequest {
+  business_name: string;
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+}
+
 export interface TokenResponse {
   access_token: string;
   refresh_token: string;
@@ -18,6 +26,21 @@ export interface CurrentUser {
   email: string;
   role: UserRole;
   full_name: string;
+}
+
+export interface BusinessUser {
+  id: string;
+  business_id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: UserRole;
+  is_active: boolean;
+}
+
+export interface BusinessUserListResponse {
+  total: number;
+  items: BusinessUser[];
 }
 
 export interface DashboardMetricsResponse {

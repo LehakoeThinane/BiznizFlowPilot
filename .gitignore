@@ -83,3 +83,5 @@ Thumbs.db
 # Project specific
 *.orig
 .vscode/
+
+venv312/

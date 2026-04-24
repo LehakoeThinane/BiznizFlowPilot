@@ -37,12 +37,18 @@ def create_workflow(
     Workflows define automation rules triggered by specific event types.
     """
     service = WorkflowService(db)
-    return service.create_workflow(
-        db=db,
-        business_id=current_user.business_id,
-        current_user=current_user,
-        data=workflow_data,
-    )
+    try:
+        return service.create_workflow(
+            db=db,
+            business_id=current_user.business_id,
+            current_user=current_user,
+            data=workflow_data,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.get("", response_model=WorkflowListResponse)
@@ -63,7 +69,7 @@ def list_workflows(
     return {"total": len(workflows), "workflows": workflows}
 
 
-@router.get("/{workflow_id}", response_model=WorkflowResponse)
+@router.get("/{workflow_id:uuid}", response_model=WorkflowResponse)
 def get_workflow(
     workflow_id: UUID,
     db: Annotated[Session, Depends(get_db)],
@@ -85,7 +91,7 @@ def get_workflow(
     return workflow
 
 
-@router.patch("/{workflow_id}", response_model=WorkflowResponse)
+@router.patch("/{workflow_id:uuid}", response_model=WorkflowResponse)
 def update_workflow(
     workflow_id: UUID,
     workflow_data: WorkflowUpdate,
@@ -98,19 +104,26 @@ def update_workflow(
     Note: This updates top-level fields only. To modify actions, delete and recreate workflow.
     """
     service = WorkflowService(db)
-    workflow = service.update_workflow(
-        db=db,
-        business_id=current_user.business_id,
-        current_user=current_user,
-        workflow_id=workflow_id,
-        data=workflow_data,
-    )
+    try:
+        workflow = service.update_workflow(
+            db=db,
+            business_id=current_user.business_id,
+            current_user=current_user,
+            workflow_id=workflow_id,
+            data=workflow_data,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return workflow
 
 
-@router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{workflow_id:uuid}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_workflow(
     workflow_id: UUID,
     db: Annotated[Session, Depends(get_db)],
@@ -121,17 +134,24 @@ def delete_workflow(
     Only Owner and Manager can delete workflows.
     """
     service = WorkflowService(db)
-    success = service.delete_workflow(
-        db=db,
-        business_id=current_user.business_id,
-        current_user=current_user,
-        workflow_id=workflow_id,
-    )
+    try:
+        success = service.delete_workflow(
+            db=db,
+            business_id=current_user.business_id,
+            current_user=current_user,
+            workflow_id=workflow_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+
     if not success:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
 
-@router.patch("/{workflow_id}/toggle", response_model=WorkflowResponse)
+@router.patch("/{workflow_id:uuid}/toggle", response_model=WorkflowResponse)
 def toggle_workflow(
     workflow_id: UUID,
     enabled: bool,
@@ -144,19 +164,26 @@ def toggle_workflow(
     Disabled workflows will not trigger on events.
     """
     service = WorkflowService(db)
-    workflow = service.toggle_workflow(
-        db=db,
-        business_id=current_user.business_id,
-        current_user=current_user,
-        workflow_id=workflow_id,
-        enabled=enabled,
-    )
+    try:
+        workflow = service.toggle_workflow(
+            db=db,
+            business_id=current_user.business_id,
+            current_user=current_user,
+            workflow_id=workflow_id,
+            enabled=enabled,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return workflow
 
 
-@router.get("/{workflow_id}/runs", response_model=WorkflowRunListResponse)
+@router.get("/{workflow_id:uuid}/runs", response_model=WorkflowRunListResponse)
 def get_workflow_runs(
     workflow_id: UUID,
     db: Annotated[Session, Depends(get_db)],
@@ -182,7 +209,7 @@ def get_workflow_runs(
     return {"total": len(runs), "runs": runs}
 
 
-@router.get("/runs/{run_id}", response_model=WorkflowRunResponse)
+@router.get("/runs/{run_id:uuid}", response_model=WorkflowRunResponse)
 def get_workflow_run(
     run_id: UUID,
     db: Annotated[Session, Depends(get_db)],

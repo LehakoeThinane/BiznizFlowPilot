@@ -35,6 +35,8 @@ def create_task(
         return task
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -53,24 +55,21 @@ def list_tasks(
     
     🧨 RBAC: Owner/Manager see all. Staff see assigned to them.
     """
-    try:
-        service = TaskService(db)
+    service = TaskService(db)
 
-        if overdue_only:
-            tasks, total = service.list_overdue(current_user.business_id, current_user, skip=skip, limit=limit)
-        elif status:
-            tasks, total = service.list_by_status(current_user.business_id, current_user, status, skip=skip, limit=limit)
-        else:
-            tasks, total = service.list(current_user.business_id, current_user, skip=skip, limit=limit)
+    if overdue_only:
+        tasks, total = service.list_overdue(current_user.business_id, current_user, skip=skip, limit=limit)
+    elif status:
+        tasks, total = service.list_by_status(current_user.business_id, current_user, status, skip=skip, limit=limit)
+    else:
+        tasks, total = service.list(current_user.business_id, current_user, skip=skip, limit=limit)
 
-        return TaskListResponse(
-            items=[TaskResponse.from_orm(t) for t in tasks],
-            total=total,
-            skip=skip,
-            limit=limit,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return TaskListResponse(
+        items=[TaskResponse.model_validate(t) for t in tasks],
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.get("/{task_id}", response_model=TaskResponse)
@@ -93,6 +92,8 @@ def get_task(
         return task
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -119,6 +120,8 @@ def update_task(
         return task
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -146,6 +149,8 @@ def assign_task(
         return task
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -172,6 +177,8 @@ def delete_task(
         return {"message": "Task deleted successfully"}
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

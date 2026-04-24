@@ -1,7 +1,7 @@
 """Replace events.processed boolean with status lifecycle fields.
 
 Revision ID: 20260420_01
-Revises:
+Revises: 20260420_00
 Create Date: 2026-04-20
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "20260420_01"
-down_revision = None
+down_revision = "20260420_00"
 branch_labels = None
 depends_on = None
 

@@ -7,6 +7,8 @@ import { getStoredToken, logout } from "@/lib/auth";
 import type { Customer, CustomerListResponse, Lead, LeadListResponse } from "@/types/api";
 
 type LeadStatusUi = "all" | "new" | "contacted" | "qualified" | "converted" | "lost";
+type LeadSortField = "name" | "email" | "status" | "source" | "created";
+type SortDirection = "asc" | "desc";
 
 interface LeadEditorState {
   firstName: string;
@@ -62,6 +64,32 @@ function fullName(firstName: string, lastName: string): string {
   return `${firstName} ${lastName}`.trim();
 }
 
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "string") return error;
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return fallback;
+}
+
+function csvValue(value: string): string {
+  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
+    return `"${value.replaceAll('"', '""')}"`;
+  }
+  return value;
+}
+
+function downloadCsv(filename: string, rows: string[][]): void {
+  const csvBody = rows.map((row) => row.map(csvValue).join(",")).join("\n");
+  const blob = new Blob([csvBody], { type: "text/csv;charset=utf-8;" });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [customersById, setCustomersById] = useState<Record<string, Customer>>({});
@@ -71,6 +99,12 @@ export default function LeadsPage() {
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [sortField, setSortField] = useState<LeadSortField>("created");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [bulkStatus, setBulkStatus] = useState<Exclude<LeadStatusUi, "all">>("contacted");
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isSavingCreate, setIsSavingCreate] = useState(false);
@@ -92,17 +126,56 @@ export default function LeadsPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const filteredLeads = useMemo(() => {
+  const visibleLeads = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return leads;
-
-    return leads.filter((lead) => {
+    const filtered = leads.filter((lead) => {
       const customer = lead.customer_id ? customersById[lead.customer_id] : undefined;
       const name = customer?.name?.toLowerCase() ?? "";
       const email = customer?.email?.toLowerCase() ?? "";
-      return name.includes(query) || email.includes(query);
+      return !query || name.includes(query) || email.includes(query);
     });
-  }, [customersById, leads, search]);
+
+    filtered.sort((left, right) => {
+      const leftCustomer = left.customer_id ? customersById[left.customer_id] : undefined;
+      const rightCustomer = right.customer_id ? customersById[right.customer_id] : undefined;
+      if (sortField === "name") {
+        const leftName = (leftCustomer?.name ?? "").toLowerCase();
+        const rightName = (rightCustomer?.name ?? "").toLowerCase();
+        return leftName.localeCompare(rightName);
+      }
+      if (sortField === "email") {
+        const leftEmail = (leftCustomer?.email ?? "").toLowerCase();
+        const rightEmail = (rightCustomer?.email ?? "").toLowerCase();
+        return leftEmail.localeCompare(rightEmail);
+      }
+      if (sortField === "status") {
+        return toUiStatus(left.status).localeCompare(toUiStatus(right.status));
+      }
+      if (sortField === "source") {
+        return (left.source ?? "").localeCompare(right.source ?? "");
+      }
+      return new Date(left.created_at).getTime() - new Date(right.created_at).getTime();
+    });
+
+    if (sortDirection === "desc") {
+      filtered.reverse();
+    }
+
+    return filtered;
+  }, [customersById, leads, search, sortDirection, sortField]);
+
+  const visibleLeadIdSet = useMemo(
+    () => new Set(visibleLeads.map((lead) => lead.id)),
+    [visibleLeads],
+  );
+
+  const selectedVisibleLeadIds = useMemo(
+    () => selectedLeadIds.filter((leadId) => visibleLeadIdSet.has(leadId)),
+    [selectedLeadIds, visibleLeadIdSet],
+  );
+
+  const allVisibleSelected =
+    visibleLeads.length > 0 && selectedVisibleLeadIds.length === visibleLeads.length;
 
   const hydrateEditorFromLead = useCallback(
     (lead: Lead) => {
@@ -183,6 +256,130 @@ export default function LeadsPage() {
     return () => window.clearTimeout(timer);
   }, [loadLeads]);
 
+  const handleSortChange = useCallback((field: LeadSortField) => {
+    setSortField((previousField) => {
+      if (previousField === field) {
+        setSortDirection((previousDirection) =>
+          previousDirection === "asc" ? "desc" : "asc",
+        );
+        return previousField;
+      }
+      setSortDirection(field === "created" ? "desc" : "asc");
+      return field;
+    });
+  }, []);
+
+  const handleToggleAllVisible = useCallback(() => {
+    if (visibleLeads.length === 0) {
+      return;
+    }
+
+    setSelectedLeadIds((previous) => {
+      if (allVisibleSelected) {
+        const visible = new Set(visibleLeads.map((lead) => lead.id));
+        return previous.filter((leadId) => !visible.has(leadId));
+      }
+
+      const merged = new Set(previous);
+      for (const lead of visibleLeads) {
+        merged.add(lead.id);
+      }
+      return Array.from(merged);
+    });
+  }, [allVisibleSelected, visibleLeads]);
+
+  const handleToggleOne = useCallback((leadId: string) => {
+    setSelectedLeadIds((previous) => {
+      if (previous.includes(leadId)) {
+        return previous.filter((id) => id !== leadId);
+      }
+      return [...previous, leadId];
+    });
+  }, []);
+
+  const handleBulkStatusUpdate = useCallback(async () => {
+    if (selectedVisibleLeadIds.length === 0) {
+      return;
+    }
+
+    const token = getStoredToken();
+    if (!token) {
+      logout();
+      window.location.replace("/login");
+      return;
+    }
+
+    setIsBulkUpdating(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const outcomes = await Promise.allSettled(
+        selectedVisibleLeadIds.map((leadId) =>
+          apiRequest<Lead>(`/api/v1/leads/${leadId}`, {
+            method: "PATCH",
+            authToken: token,
+            body: {
+              status: toBackendStatus(bulkStatus),
+            },
+          }),
+        ),
+      );
+
+      const successCount = outcomes.filter((outcome) => outcome.status === "fulfilled").length;
+      const failureCount = outcomes.length - successCount;
+
+      if (successCount > 0) {
+        setSuccessMessage(
+          `Updated ${successCount} lead${successCount === 1 ? "" : "s"} to ${bulkStatus}.`,
+        );
+        setSelectedLeadIds((previous) =>
+          previous.filter((leadId) => !selectedVisibleLeadIds.includes(leadId)),
+        );
+        await loadLeads();
+      }
+
+      if (failureCount > 0) {
+        const firstFailure = outcomes.find(
+          (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
+        );
+        setError(
+          `${toErrorMessage(firstFailure?.reason, "Unable to update selected leads.")} (${failureCount} failed${successCount > 0 ? `, ${successCount} succeeded` : ""})`,
+        );
+      }
+    } finally {
+      setIsBulkUpdating(false);
+    }
+  }, [bulkStatus, loadLeads, selectedVisibleLeadIds]);
+
+  const exportVisibleLeadsCsv = useCallback(() => {
+    if (visibleLeads.length === 0) {
+      return;
+    }
+
+    const rows: string[][] = [
+      ["Lead ID", "Name", "Email", "Phone", "Status", "Source", "Created", "Updated"],
+    ];
+
+    for (const lead of visibleLeads) {
+      const customer = lead.customer_id ? customersById[lead.customer_id] : undefined;
+      const nameParts = splitName(customer?.name);
+      rows.push([
+        lead.id,
+        fullName(nameParts.firstName, nameParts.lastName) || "Unknown",
+        customer?.email ?? "",
+        customer?.phone ?? "",
+        toUiStatus(lead.status),
+        lead.source ?? "",
+        formatDate(lead.created_at),
+        formatDate(lead.updated_at),
+      ]);
+    }
+
+    const datePart = new Date().toISOString().slice(0, 10);
+    downloadCsv(`leads-${datePart}.csv`, rows);
+  }, [customersById, visibleLeads]);
+
   async function openLeadDetails(lead: Lead) {
     const token = getStoredToken();
     if (!token) {
@@ -248,6 +445,7 @@ export default function LeadsPage() {
 
     setIsSavingCreate(true);
     setError(null);
+    setSuccessMessage(null);
 
     try {
       const customer = await apiRequest<Customer>("/api/v1/customers", {
@@ -307,6 +505,7 @@ export default function LeadsPage() {
 
     setIsSavingEdit(true);
     setError(null);
+    setSuccessMessage(null);
 
     try {
       let customerId = selectedLead.customer_id;
@@ -376,6 +575,7 @@ export default function LeadsPage() {
 
     setIsDeleting(true);
     setError(null);
+    setSuccessMessage(null);
     try {
       await apiRequest<{ message: string }>(`/api/v1/leads/${selectedLead.id}`, {
         method: "DELETE",
@@ -454,7 +654,69 @@ export default function LeadsPage() {
         >
           Refresh
         </button>
+        <button
+          type="button"
+          className="rounded-md border border-border px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          onClick={exportVisibleLeadsCsv}
+          disabled={visibleLeads.length === 0}
+        >
+          Export CSV
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-border px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+          onClick={() => {
+            setSearch("");
+            setStatusFilter("all");
+            setSortField("created");
+            setSortDirection("desc");
+          }}
+        >
+          Clear
+        </button>
       </div>
+
+      <p className="text-sm text-muted">
+        Showing {visibleLeads.length} of {leads.length} lead{leads.length === 1 ? "" : "s"}.
+      </p>
+
+      {selectedVisibleLeadIds.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-slate-50 px-4 py-3 text-sm">
+          <p className="text-slate-700">
+            Selected {selectedVisibleLeadIds.length} lead
+            {selectedVisibleLeadIds.length === 1 ? "" : "s"}.
+          </p>
+          <div className="flex items-center gap-2">
+            <select
+              value={bulkStatus}
+              onChange={(event) =>
+                setBulkStatus(event.target.value as Exclude<LeadStatusUi, "all">)
+              }
+              className="rounded-md border border-border bg-white px-3 py-1.5 text-sm capitalize"
+            >
+              <option value="new">New</option>
+              <option value="contacted">Contacted</option>
+              <option value="qualified">Qualified</option>
+              <option value="converted">Converted</option>
+              <option value="lost">Lost</option>
+            </select>
+            <button
+              type="button"
+              className="rounded-md border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+              onClick={() => void handleBulkStatusUpdate()}
+              disabled={isBulkUpdating}
+            >
+              {isBulkUpdating ? "Updating..." : "Apply Status"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {successMessage ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {successMessage}
+        </div>
+      ) : null}
 
       {error ? (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -473,7 +735,7 @@ export default function LeadsPage() {
         <div className="rounded-lg border border-border bg-surface p-5 text-sm text-muted">
           Loading leads...
         </div>
-      ) : filteredLeads.length === 0 ? (
+      ) : visibleLeads.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-5 text-sm text-muted">
           No leads found for the current filters.
         </div>
@@ -482,16 +744,69 @@ export default function LeadsPage() {
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left">
               <tr>
-                <th className="px-4 py-3 font-medium text-slate-700">Name</th>
-                <th className="px-4 py-3 font-medium text-slate-700">Email</th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={handleToggleAllVisible}
+                    aria-label="Select all visible leads"
+                  />
+                </th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                    onClick={() => handleSortChange("name")}
+                  >
+                    Name
+                    <SortIndicator active={sortField === "name"} direction={sortDirection} />
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                    onClick={() => handleSortChange("email")}
+                  >
+                    Email
+                    <SortIndicator active={sortField === "email"} direction={sortDirection} />
+                  </button>
+                </th>
                 <th className="px-4 py-3 font-medium text-slate-700">Phone</th>
-                <th className="px-4 py-3 font-medium text-slate-700">Status</th>
-                <th className="px-4 py-3 font-medium text-slate-700">Source</th>
-                <th className="px-4 py-3 font-medium text-slate-700">Created</th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                    onClick={() => handleSortChange("status")}
+                  >
+                    Status
+                    <SortIndicator active={sortField === "status"} direction={sortDirection} />
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                    onClick={() => handleSortChange("source")}
+                  >
+                    Source
+                    <SortIndicator active={sortField === "source"} direction={sortDirection} />
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                    onClick={() => handleSortChange("created")}
+                  >
+                    Created
+                    <SortIndicator active={sortField === "created"} direction={sortDirection} />
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {filteredLeads.map((lead) => {
+              {visibleLeads.map((lead) => {
                 const customer = lead.customer_id ? customersById[lead.customer_id] : undefined;
                 const nameParts = splitName(customer?.name);
                 const displayStatus = toUiStatus(lead.status);
@@ -501,6 +816,15 @@ export default function LeadsPage() {
                     className="cursor-pointer border-t border-border hover:bg-slate-50"
                     onClick={() => void openLeadDetails(lead)}
                   >
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedLeadIds.includes(lead.id)}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={() => handleToggleOne(lead.id)}
+                        aria-label={`Select ${customer?.name ?? lead.id}`}
+                      />
+                    </td>
                     <td className="px-4 py-3 text-slate-900">
                       {fullName(nameParts.firstName, nameParts.lastName) || "Unknown"}
                     </td>
@@ -683,6 +1007,19 @@ export default function LeadsPage() {
       ) : null}
     </section>
   );
+}
+
+function SortIndicator({
+  active,
+  direction,
+}: {
+  active: boolean;
+  direction: SortDirection;
+}) {
+  if (!active) {
+    return <span className="text-slate-300">↕</span>;
+  }
+  return <span>{direction === "asc" ? "↑" : "↓"}</span>;
 }
 
 function DetailItem({

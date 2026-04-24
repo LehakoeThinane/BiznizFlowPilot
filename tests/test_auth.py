@@ -1,6 +1,7 @@
 """Tests for authentication."""
 
 import pytest
+from app.core.security import create_access_token
 
 
 class TestRegistration:
@@ -104,6 +105,19 @@ class TestProtectedRoutes:
         assert "business_id" in data
         assert "email" in data
 
+    def test_get_current_user_with_users_me_alias(self, client, registered_user):
+        """Test compatibility alias route for current user."""
+        access_token = registered_user["access_token"]
+
+        headers = {"Authorization": f"Bearer {access_token}"}
+        response = client.get("/api/v1/users/me", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "user_id" in data
+        assert "business_id" in data
+        assert "email" in data
+
     def test_get_current_user_without_token(self, client):
         """Test accessing protected route without token."""
         response = client.get("/api/v1/me")
@@ -115,9 +129,36 @@ class TestProtectedRoutes:
         """Test accessing protected route with invalid token."""
         headers = {"Authorization": "Bearer invalid.token.here"}
         response = client.get("/api/v1/me", headers=headers)
-        
+
         assert response.status_code == 401
         assert "Invalid or expired token" in response.json()["detail"]
+
+    def test_get_current_user_token_without_role_claim_uses_db_role(
+        self, client, registered_user
+    ):
+        """Token without role claim should still resolve authoritative DB role."""
+        access_token = registered_user["access_token"]
+        base_headers = {"Authorization": f"Bearer {access_token}"}
+        me_response = client.get("/api/v1/me", headers=base_headers)
+        assert me_response.status_code == 200
+        me_data = me_response.json()
+
+        roleless_token = create_access_token(
+            {
+                "sub": me_data["user_id"],
+                "user_id": me_data["user_id"],
+                "business_id": me_data["business_id"],
+                "email": me_data["email"],
+                # intentionally omit role/full_name
+            }
+        )
+
+        roleless_headers = {"Authorization": f"Bearer {roleless_token}"}
+        roleless_response = client.get("/api/v1/me", headers=roleless_headers)
+
+        assert roleless_response.status_code == 200
+        roleless_data = roleless_response.json()
+        assert roleless_data["role"] == "owner"
 
 
 class TestHealthCheck:

@@ -1,16 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiError, apiRequest } from "@/lib/api";
 import { getStoredToken, logout } from "@/lib/auth";
 import type { Workflow, WorkflowDefinitionInput } from "@/types/api";
 
 interface WorkflowDetailPageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 function formatDate(value: string): string {
@@ -121,11 +121,13 @@ function parseDefinition(input: string): WorkflowDefinitionInput {
 }
 
 export default function WorkflowDetailPage({ params }: WorkflowDetailPageProps) {
+  const { id: workflowId } = use(params);
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [showJson, setShowJson] = useState(false);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -142,7 +144,7 @@ export default function WorkflowDetailPage({ params }: WorkflowDetailPageProps) 
     setError(null);
     setIsLoading(true);
     try {
-      const response = await apiRequest<Workflow>(`/api/v1/workflows/${params.id}`, {
+      const response = await apiRequest<Workflow>(`/api/v1/workflows/${workflowId}`, {
         method: "GET",
         authToken: token,
       });
@@ -168,7 +170,7 @@ export default function WorkflowDetailPage({ params }: WorkflowDetailPageProps) 
     } finally {
       setIsLoading(false);
     }
-  }, [params.id]);
+  }, [workflowId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -192,6 +194,7 @@ export default function WorkflowDetailPage({ params }: WorkflowDetailPageProps) 
     }
     setError(null);
     setIsEditing(true);
+    setShowJson(false);
     setName(workflow.name);
     setDescription(workflow.description ?? "");
     setDefinitionText(JSON.stringify(buildDefinitionFromWorkflow(workflow), null, 2));
@@ -204,6 +207,7 @@ export default function WorkflowDetailPage({ params }: WorkflowDetailPageProps) 
       setDefinitionText(JSON.stringify(buildDefinitionFromWorkflow(workflow), null, 2));
     }
     setIsEditing(false);
+    setShowJson(false);
     setError(null);
   }
 
@@ -247,14 +251,14 @@ export default function WorkflowDetailPage({ params }: WorkflowDetailPageProps) 
 
     try {
       try {
-        await apiRequest<Workflow>(`/api/v1/workflows/${params.id}`, {
+        await apiRequest<Workflow>(`/api/v1/workflows/${workflowId}`, {
           method: "PUT",
           authToken: token,
           body: payload,
         });
       } catch (putError) {
         if (putError instanceof ApiError && putError.status === 405) {
-          await apiRequest<Workflow>(`/api/v1/workflows/${params.id}`, {
+          await apiRequest<Workflow>(`/api/v1/workflows/${workflowId}`, {
             method: "PATCH",
             authToken: token,
             body: payload,
@@ -361,18 +365,42 @@ export default function WorkflowDetailPage({ params }: WorkflowDetailPageProps) 
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-wide text-muted">Workflow Definition JSON</p>
             {isEditing ? (
-              <textarea
-                rows={14}
-                value={definitionText}
-                onChange={(event) => setDefinitionText(event.target.value)}
-                className="mt-2 w-full rounded-md border border-border bg-slate-900 px-3 py-2 font-mono text-xs text-slate-100 outline-none ring-brand/20 focus:ring-2"
-              />
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted">
+                  Workflow Definition JSON
+                </p>
+                <textarea
+                  rows={14}
+                  value={definitionText}
+                  onChange={(event) => setDefinitionText(event.target.value)}
+                  className="mt-2 w-full rounded-md border border-border bg-slate-900 px-3 py-2 font-mono text-xs text-slate-100 outline-none ring-brand/20 focus:ring-2"
+                />
+              </div>
             ) : (
-              <pre className="mt-2 overflow-x-auto rounded-md border border-border bg-slate-900 p-4 text-xs text-slate-100">
-                <code>{readOnlyDefinitionJson}</code>
-              </pre>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs uppercase tracking-wide text-muted">
+                    Workflow Definition
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowJson((current) => !current)}
+                    className="rounded-md border border-border px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    {showJson ? "Hide JSON" : "Show JSON"}
+                  </button>
+                </div>
+                {showJson ? (
+                  <pre className="overflow-x-auto rounded-md border border-border bg-slate-900 p-4 text-xs text-slate-100">
+                    <code>{readOnlyDefinitionJson}</code>
+                  </pre>
+                ) : (
+                  <p className="text-sm text-slate-700">
+                    The workflow definition JSON is hidden by default.
+                  </p>
+                )}
+              </div>
             )}
           </div>
 

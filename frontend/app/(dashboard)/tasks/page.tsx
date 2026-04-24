@@ -4,10 +4,25 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiError, apiRequest } from "@/lib/api";
 import { getCurrentUser, getStoredToken, logout } from "@/lib/auth";
-import type { CurrentUser, Task, TaskListResponse } from "@/types/api";
+import type {
+  BusinessUser,
+  BusinessUserListResponse,
+  CurrentUser,
+  Task,
+  TaskListResponse,
+} from "@/types/api";
 
 type TaskStatusUi = "all" | "pending" | "in_progress" | "completed" | "cancelled";
 type TaskPriorityUi = "all" | "low" | "medium" | "high";
+type TaskSortField =
+  | "title"
+  | "description"
+  | "status"
+  | "priority"
+  | "assignedTo"
+  | "dueDate"
+  | "created";
+type SortDirection = "asc" | "desc";
 
 interface TaskEditorState {
   title: string;
@@ -19,6 +34,8 @@ interface TaskEditorState {
 }
 
 const PAGE_SIZE = 20;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function toUiStatus(status: Task["status"]): Exclude<TaskStatusUi, "all"> {
   if (status === "overdue") {
@@ -91,6 +108,43 @@ function defaultEditor(): TaskEditorState {
   };
 }
 
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "string") return error;
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return fallback;
+}
+
+function normalizeOptionalUuid(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (!UUID_PATTERN.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+function csvValue(value: string): string {
+  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
+    return `"${value.replaceAll('"', '""')}"`;
+  }
+  return value;
+}
+
+function downloadCsv(filename: string, rows: string[][]): void {
+  const csvBody = rows.map((row) => row.map(csvValue).join(",")).join("\n");
+  const blob = new Blob([csvBody], { type: "text/csv;charset=utf-8;" });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [total, setTotal] = useState(0);
@@ -100,8 +154,15 @@ export default function TasksPage() {
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [sortField, setSortField] = useState<TaskSortField>("created");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [bulkStatus, setBulkStatus] = useState<Exclude<TaskStatusUi, "all">>("in_progress");
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
 
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [businessUsers, setBusinessUsers] = useState<BusinessUser[]>([]);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isSavingCreate, setIsSavingCreate] = useState(false);
@@ -115,23 +176,74 @@ export default function TasksPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const filteredTasks = useMemo(() => {
+  const visibleTasks = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return tasks.filter((task) => {
+    const filtered = tasks.filter((task) => {
       const titleMatch = task.title.toLowerCase().includes(query);
       const priorityMatch =
         priorityFilter === "all" || toUiPriority(task.priority) === priorityFilter;
       return titleMatch && priorityMatch;
     });
-  }, [priorityFilter, search, tasks]);
+
+    filtered.sort((left, right) => {
+      if (sortField === "title") {
+        return left.title.localeCompare(right.title);
+      }
+      if (sortField === "description") {
+        return (left.description ?? "").localeCompare(right.description ?? "");
+      }
+      if (sortField === "status") {
+        return toUiStatus(left.status).localeCompare(toUiStatus(right.status));
+      }
+      if (sortField === "priority") {
+        return toUiPriority(left.priority).localeCompare(toUiPriority(right.priority));
+      }
+      if (sortField === "assignedTo") {
+        return (left.assigned_to ?? "").localeCompare(right.assigned_to ?? "");
+      }
+      if (sortField === "dueDate") {
+        return new Date(left.due_date ?? "").getTime() - new Date(right.due_date ?? "").getTime();
+      }
+      return new Date(left.created_at).getTime() - new Date(right.created_at).getTime();
+    });
+
+    if (sortDirection === "desc") {
+      filtered.reverse();
+    }
+
+    return filtered;
+  }, [priorityFilter, search, sortDirection, sortField, tasks]);
+
+  const visibleTaskIdSet = useMemo(
+    () => new Set(visibleTasks.map((task) => task.id)),
+    [visibleTasks],
+  );
+
+  const selectedVisibleTaskIds = useMemo(
+    () => selectedTaskIds.filter((taskId) => visibleTaskIdSet.has(taskId)),
+    [selectedTaskIds, visibleTaskIdSet],
+  );
+
+  const allVisibleSelected =
+    visibleTasks.length > 0 && selectedVisibleTaskIds.length === visibleTasks.length;
+
+  const assigneeOptions = useMemo(() => {
+    return businessUsers.map((user) => {
+      const fullName = `${user.first_name} ${user.last_name}`.trim();
+      const label = fullName ? `${fullName} (${user.email})` : user.email;
+      return { id: user.id, label };
+    });
+  }, [businessUsers]);
 
   const resolveAssignee = useCallback(
     (assignedTo: string | null): string => {
       if (!assignedTo) return "-";
+      const match = assigneeOptions.find((option) => option.id === assignedTo);
+      if (match) return match.label;
       if (currentUser && currentUser.user_id === assignedTo) return currentUser.email;
       return `${assignedTo.slice(0, 8)}…`;
     },
-    [currentUser],
+    [assigneeOptions, currentUser],
   );
 
   const hydrateEditorFromTask = useCallback((task: Task) => {
@@ -163,7 +275,7 @@ export default function TasksPage() {
         : `&status=${encodeURIComponent(toBackendStatus(statusFilter))}`;
 
     try {
-      const [taskResponse, userResponse] = await Promise.all([
+      const [taskResponse, userResponse, usersResponse] = await Promise.all([
         apiRequest<TaskListResponse>(
           `/api/v1/tasks?skip=${skip}&limit=${PAGE_SIZE}${statusQuery}`,
           {
@@ -172,11 +284,16 @@ export default function TasksPage() {
           },
         ),
         getCurrentUser(token),
+        apiRequest<BusinessUserListResponse>("/api/v1/users?skip=0&limit=200", {
+          method: "GET",
+          authToken: token,
+        }).catch(() => ({ total: 0, items: [] })),
       ]);
 
       setTasks(taskResponse.items);
       setTotal(taskResponse.total);
       setCurrentUser(userResponse);
+      setBusinessUsers(usersResponse.items);
     } catch (requestError) {
       if (requestError instanceof ApiError && requestError.status === 401) {
         logout();
@@ -197,6 +314,136 @@ export default function TasksPage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [loadTasks]);
+
+  const handleSortChange = useCallback((field: TaskSortField) => {
+    setSortField((previousField) => {
+      if (previousField === field) {
+        setSortDirection((previousDirection) =>
+          previousDirection === "asc" ? "desc" : "asc",
+        );
+        return previousField;
+      }
+      setSortDirection(field === "created" ? "desc" : "asc");
+      return field;
+    });
+  }, []);
+
+  const handleToggleAllVisible = useCallback(() => {
+    if (visibleTasks.length === 0) {
+      return;
+    }
+
+    setSelectedTaskIds((previous) => {
+      if (allVisibleSelected) {
+        const visible = new Set(visibleTasks.map((task) => task.id));
+        return previous.filter((taskId) => !visible.has(taskId));
+      }
+
+      const merged = new Set(previous);
+      for (const task of visibleTasks) {
+        merged.add(task.id);
+      }
+      return Array.from(merged);
+    });
+  }, [allVisibleSelected, visibleTasks]);
+
+  const handleToggleOne = useCallback((taskId: string) => {
+    setSelectedTaskIds((previous) => {
+      if (previous.includes(taskId)) {
+        return previous.filter((id) => id !== taskId);
+      }
+      return [...previous, taskId];
+    });
+  }, []);
+
+  const handleBulkStatusUpdate = useCallback(async () => {
+    if (selectedVisibleTaskIds.length === 0) {
+      return;
+    }
+
+    const token = getStoredToken();
+    if (!token) {
+      logout();
+      window.location.replace("/login");
+      return;
+    }
+
+    setIsBulkUpdating(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const outcomes = await Promise.allSettled(
+        selectedVisibleTaskIds.map((taskId) =>
+          apiRequest<Task>(`/api/v1/tasks/${taskId}`, {
+            method: "PATCH",
+            authToken: token,
+            body: {
+              status: toBackendStatus(bulkStatus),
+            },
+          }),
+        ),
+      );
+
+      const successCount = outcomes.filter((outcome) => outcome.status === "fulfilled").length;
+      const failureCount = outcomes.length - successCount;
+
+      if (successCount > 0) {
+        setSuccessMessage(
+          `Updated ${successCount} task${successCount === 1 ? "" : "s"} to ${bulkStatus}.`,
+        );
+        setSelectedTaskIds((previous) =>
+          previous.filter((taskId) => !selectedVisibleTaskIds.includes(taskId)),
+        );
+        await loadTasks();
+      }
+
+      if (failureCount > 0) {
+        const firstFailure = outcomes.find(
+          (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
+        );
+        setError(
+          `${toErrorMessage(firstFailure?.reason, "Unable to update selected tasks.")} (${failureCount} failed${successCount > 0 ? `, ${successCount} succeeded` : ""})`,
+        );
+      }
+    } finally {
+      setIsBulkUpdating(false);
+    }
+  }, [bulkStatus, loadTasks, selectedVisibleTaskIds]);
+
+  const exportVisibleTasksCsv = useCallback(() => {
+    if (visibleTasks.length === 0) {
+      return;
+    }
+
+    const rows: string[][] = [
+      [
+        "Task ID",
+        "Title",
+        "Description",
+        "Status",
+        "Priority",
+        "Assigned To",
+        "Due Date",
+        "Created",
+      ],
+    ];
+
+    for (const task of visibleTasks) {
+      rows.push([
+        task.id,
+        task.title,
+        task.description ?? "",
+        toUiStatus(task.status),
+        toUiPriority(task.priority),
+        resolveAssignee(task.assigned_to),
+        formatDate(task.due_date),
+        formatDate(task.created_at),
+      ]);
+    }
+
+    const datePart = new Date().toISOString().slice(0, 10);
+    downloadCsv(`tasks-${datePart}.csv`, rows);
+  }, [resolveAssignee, visibleTasks]);
 
   async function openTaskDetails(task: Task) {
     const token = getStoredToken();
@@ -244,22 +491,28 @@ export default function TasksPage() {
       setError("Title is required.");
       return;
     }
+    const normalizedAssignee = normalizeOptionalUuid(editor.assignedToId);
+    if (editor.assignedToId.trim() && !normalizedAssignee) {
+      setError("Assigned user is invalid. Please choose from the list.");
+      return;
+    }
 
     setIsSavingCreate(true);
     setError(null);
+    setSuccessMessage(null);
     try {
       await apiRequest<Task>("/api/v1/tasks", {
         method: "POST",
         authToken: token,
         body: {
-          title: editor.title.trim(),
-          description: editor.description.trim() || null,
-          status: toBackendStatus(editor.status),
-          priority: toBackendPriority(editor.priority),
-          assigned_to: editor.assignedToId.trim() || null,
-          due_date: editor.dueDate ? new Date(editor.dueDate).toISOString() : null,
-        },
-      });
+              title: editor.title.trim(),
+              description: editor.description.trim() || null,
+              status: toBackendStatus(editor.status),
+              priority: toBackendPriority(editor.priority),
+              assigned_to: normalizedAssignee,
+              due_date: editor.dueDate ? new Date(editor.dueDate).toISOString() : null,
+            },
+          });
       setIsCreateOpen(false);
       setEditor(defaultEditor());
       await loadTasks();
@@ -289,22 +542,28 @@ export default function TasksPage() {
       setError("Title is required.");
       return;
     }
+    const normalizedAssignee = normalizeOptionalUuid(editor.assignedToId);
+    if (editor.assignedToId.trim() && !normalizedAssignee) {
+      setError("Assigned user is invalid. Please choose from the list.");
+      return;
+    }
 
     setIsSavingEdit(true);
     setError(null);
+    setSuccessMessage(null);
     try {
       const updated = await apiRequest<Task>(`/api/v1/tasks/${selectedTask.id}`, {
         method: "PATCH",
         authToken: token,
         body: {
-          title: editor.title.trim(),
-          description: editor.description.trim() || null,
-          status: toBackendStatus(editor.status),
-          priority: toBackendPriority(editor.priority),
-          assigned_to: editor.assignedToId.trim() || null,
-          due_date: editor.dueDate ? new Date(editor.dueDate).toISOString() : null,
-        },
-      });
+              title: editor.title.trim(),
+              description: editor.description.trim() || null,
+              status: toBackendStatus(editor.status),
+              priority: toBackendPriority(editor.priority),
+              assigned_to: normalizedAssignee,
+              due_date: editor.dueDate ? new Date(editor.dueDate).toISOString() : null,
+            },
+          });
       setSelectedTask(updated);
       setIsEditing(false);
       await loadTasks();
@@ -332,6 +591,7 @@ export default function TasksPage() {
     }
     setIsDeleting(true);
     setError(null);
+    setSuccessMessage(null);
     try {
       await apiRequest<{ message: string }>(`/api/v1/tasks/${selectedTask.id}`, {
         method: "DELETE",
@@ -364,6 +624,7 @@ export default function TasksPage() {
     }
     setIsCompleting(true);
     setError(null);
+    setSuccessMessage(null);
     try {
       const updated = await apiRequest<Task>(`/api/v1/tasks/${selectedTask.id}`, {
         method: "PATCH",
@@ -450,7 +711,69 @@ export default function TasksPage() {
         >
           Refresh
         </button>
+        <button
+          type="button"
+          className="rounded-md border border-border px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          onClick={exportVisibleTasksCsv}
+          disabled={visibleTasks.length === 0}
+        >
+          Export CSV
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-border px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+          onClick={() => {
+            setSearch("");
+            setStatusFilter("all");
+            setPriorityFilter("all");
+            setSortField("created");
+            setSortDirection("desc");
+          }}
+        >
+          Clear
+        </button>
       </div>
+
+      <p className="text-sm text-muted">
+        Showing {visibleTasks.length} of {tasks.length} task{tasks.length === 1 ? "" : "s"}.
+      </p>
+
+      {selectedVisibleTaskIds.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-slate-50 px-4 py-3 text-sm">
+          <p className="text-slate-700">
+            Selected {selectedVisibleTaskIds.length} task
+            {selectedVisibleTaskIds.length === 1 ? "" : "s"}.
+          </p>
+          <div className="flex items-center gap-2">
+            <select
+              value={bulkStatus}
+              onChange={(event) =>
+                setBulkStatus(event.target.value as Exclude<TaskStatusUi, "all">)
+              }
+              className="rounded-md border border-border bg-white px-3 py-1.5 text-sm capitalize"
+            >
+              <option value="pending">Pending</option>
+              <option value="in_progress">In Progress</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <button
+              type="button"
+              className="rounded-md border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+              onClick={() => void handleBulkStatusUpdate()}
+              disabled={isBulkUpdating}
+            >
+              {isBulkUpdating ? "Updating..." : "Apply Status"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {successMessage ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {successMessage}
+        </div>
+      ) : null}
 
       {error ? (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -469,7 +792,7 @@ export default function TasksPage() {
         <div className="rounded-lg border border-border bg-surface p-5 text-sm text-muted">
           Loading tasks...
         </div>
-      ) : filteredTasks.length === 0 ? (
+      ) : visibleTasks.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-5 text-sm text-muted">
           No tasks found for the current filters.
         </div>
@@ -478,17 +801,94 @@ export default function TasksPage() {
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left">
               <tr>
-                <th className="px-4 py-3 font-medium text-slate-700">Title</th>
-                <th className="px-4 py-3 font-medium text-slate-700">Description</th>
-                <th className="px-4 py-3 font-medium text-slate-700">Status</th>
-                <th className="px-4 py-3 font-medium text-slate-700">Priority</th>
-                <th className="px-4 py-3 font-medium text-slate-700">Assigned To</th>
-                <th className="px-4 py-3 font-medium text-slate-700">Due Date</th>
-                <th className="px-4 py-3 font-medium text-slate-700">Created</th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={handleToggleAllVisible}
+                    aria-label="Select all visible tasks"
+                  />
+                </th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                    onClick={() => handleSortChange("title")}
+                  >
+                    Title
+                    <SortIndicator active={sortField === "title"} direction={sortDirection} />
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                    onClick={() => handleSortChange("description")}
+                  >
+                    Description
+                    <SortIndicator
+                      active={sortField === "description"}
+                      direction={sortDirection}
+                    />
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                    onClick={() => handleSortChange("status")}
+                  >
+                    Status
+                    <SortIndicator active={sortField === "status"} direction={sortDirection} />
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                    onClick={() => handleSortChange("priority")}
+                  >
+                    Priority
+                    <SortIndicator active={sortField === "priority"} direction={sortDirection} />
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                    onClick={() => handleSortChange("assignedTo")}
+                  >
+                    Assigned To
+                    <SortIndicator
+                      active={sortField === "assignedTo"}
+                      direction={sortDirection}
+                    />
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                    onClick={() => handleSortChange("dueDate")}
+                  >
+                    Due Date
+                    <SortIndicator active={sortField === "dueDate"} direction={sortDirection} />
+                  </button>
+                </th>
+                <th className="px-4 py-3 font-medium text-slate-700">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                    onClick={() => handleSortChange("created")}
+                  >
+                    Created
+                    <SortIndicator active={sortField === "created"} direction={sortDirection} />
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {filteredTasks.map((task) => {
+              {visibleTasks.map((task) => {
                 const status = toUiStatus(task.status);
                 const priority = toUiPriority(task.priority);
                 return (
@@ -497,6 +897,15 @@ export default function TasksPage() {
                     className="cursor-pointer border-t border-border hover:bg-slate-50"
                     onClick={() => void openTaskDetails(task)}
                   >
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedTaskIds.includes(task.id)}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={() => handleToggleOne(task.id)}
+                        aria-label={`Select ${task.title}`}
+                      />
+                    </td>
                     <td className="px-4 py-3 text-slate-900">{task.title}</td>
                     <td className="px-4 py-3 text-slate-700">{truncate(task.description)}</td>
                     <td className="px-4 py-3">
@@ -579,6 +988,7 @@ export default function TasksPage() {
               onSubmit={() => void handleCreateTask()}
               submitLabel={isSavingCreate ? "Creating..." : "Create Task"}
               disabled={isSavingCreate}
+              assigneeOptions={assigneeOptions}
             />
           </aside>
         </div>
@@ -682,6 +1092,7 @@ export default function TasksPage() {
                       onSubmit={() => void handleSaveTaskEdits()}
                       submitLabel={isSavingEdit ? "Saving..." : "Save"}
                       disabled={isSavingEdit}
+                      assigneeOptions={assigneeOptions}
                     />
                     <button
                       type="button"
@@ -702,6 +1113,19 @@ export default function TasksPage() {
       ) : null}
     </section>
   );
+}
+
+function SortIndicator({
+  active,
+  direction,
+}: {
+  active: boolean;
+  direction: SortDirection;
+}) {
+  if (!active) {
+    return <span className="text-slate-300">↕</span>;
+  }
+  return <span>{direction === "asc" ? "↑" : "↓"}</span>;
 }
 
 function DetailItem({
@@ -727,12 +1151,14 @@ function TaskForm({
   onSubmit,
   submitLabel,
   disabled,
+  assigneeOptions,
 }: {
   editor: TaskEditorState;
   onChange: (next: TaskEditorState) => void;
   onSubmit: () => void;
   submitLabel: string;
   disabled: boolean;
+  assigneeOptions: Array<{ id: string; label: string }>;
 }) {
   function update<K extends keyof TaskEditorState>(key: K, value: TaskEditorState[K]) {
     onChange({ ...editor, [key]: value });
@@ -815,15 +1241,27 @@ function TaskForm({
             className="mb-1 block text-sm font-medium text-slate-700"
             htmlFor="task-assigned"
           >
-            Assigned To ID (optional)
+            Assigned To (optional)
           </label>
-          <input
+          <select
             id="task-assigned"
             value={editor.assignedToId}
             onChange={(event) => update("assignedToId", event.target.value)}
             className="w-full rounded-md border border-border bg-white px-3 py-2 text-sm"
-            placeholder="User UUID"
-          />
+          >
+            <option value="">Unassigned</option>
+            {assigneeOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+            {editor.assignedToId &&
+            !assigneeOptions.some((option) => option.id === editor.assignedToId) ? (
+              <option value={editor.assignedToId}>
+                Current assignee ({editor.assignedToId.slice(0, 8)}...)
+              </option>
+            ) : null}
+          </select>
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="task-due">

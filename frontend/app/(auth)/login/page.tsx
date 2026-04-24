@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 
 import { getCurrentUser, getStoredToken, login } from "@/lib/auth";
@@ -28,7 +29,12 @@ export default function LoginPage() {
       await login({ email, password });
       window.location.replace("/dashboard");
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Login failed");
+      const message = submitError instanceof Error ? submitError.message : "Login failed";
+      setError(
+        message === "Invalid email or password"
+          ? "We could not sign you in. Check your email and password, or create an account first."
+          : message,
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -39,6 +45,7 @@ export default function LoginPage() {
       <section className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-sm">
         <h1 className="text-2xl font-semibold text-slate-900">BiznizFlowPilot</h1>
         <p className="mt-1 text-sm text-muted">Sign in to the operational dashboard.</p>
+        <p className="mt-1 text-xs text-muted">If this is your first time, create an account first.</p>
 
         <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
           <div>
@@ -79,6 +86,13 @@ export default function LoginPage() {
           >
             {isSubmitting ? "Signing in..." : "Sign in"}
           </button>
+
+          <p className="text-center text-sm text-muted">
+            New business?{" "}
+            <Link href="/register" className="font-medium text-brand hover:underline">
+              Create an account
+            </Link>
+          </p>
         </form>
       </section>
     </main>

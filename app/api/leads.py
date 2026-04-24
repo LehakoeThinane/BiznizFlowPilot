@@ -35,6 +35,8 @@ def create_lead(
         return lead
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -52,22 +54,19 @@ def list_leads(
     
     🧨 RBAC: Owner/Manager see all. Staff see assigned to them.
     """
-    try:
-        service = LeadService(db)
+    service = LeadService(db)
 
-        if status:
-            leads, total = service.list_by_status(current_user.business_id, current_user, status, skip=skip, limit=limit)
-        else:
-            leads, total = service.list(current_user.business_id, current_user, skip=skip, limit=limit)
+    if status:
+        leads, total = service.list_by_status(current_user.business_id, current_user, status, skip=skip, limit=limit)
+    else:
+        leads, total = service.list(current_user.business_id, current_user, skip=skip, limit=limit)
 
-        return LeadListResponse(
-            items=[LeadResponse.from_orm(l) for l in leads],
-            total=total,
-            skip=skip,
-            limit=limit,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return LeadListResponse(
+        items=[LeadResponse.model_validate(l) for l in leads],
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.get("/{lead_id}", response_model=LeadResponse)
@@ -80,16 +79,13 @@ def get_lead(
     
     🧨 RBAC: All roles can view leads in their business.
     """
-    try:
-        service = LeadService(db)
-        lead = service.get(current_user.business_id, current_user, lead_id)
+    service = LeadService(db)
+    lead = service.get(current_user.business_id, current_user, lead_id)
 
-        if not lead:
-            raise HTTPException(status_code=404, detail="Lead not found")
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
 
-        return lead
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return lead
 
 
 @router.patch("/{lead_id}", response_model=LeadResponse)
@@ -114,6 +110,8 @@ def update_lead(
         return lead
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -141,6 +139,8 @@ def assign_lead(
         return lead
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -167,6 +167,8 @@ def delete_lead(
         return {"message": "Lead deleted successfully"}
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

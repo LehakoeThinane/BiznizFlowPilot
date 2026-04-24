@@ -1,7 +1,6 @@
 """Lead model - sales pipeline entity."""
 
-from sqlalchemy import Column, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, ForeignKey, String, Text, Uuid
 
 from app.models.base import BaseModel
 
@@ -25,14 +24,15 @@ class Lead(BaseModel):
     }
 
     business_id = Column(
-        UUID(as_uuid=True),
+        Uuid,
+        ForeignKey("businesses.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Tenant ID - CRITICAL FOR MULTI-TENANCY",
     )
 
     customer_id = Column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("customers.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -40,7 +40,7 @@ class Lead(BaseModel):
     )
 
     assigned_to = Column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
