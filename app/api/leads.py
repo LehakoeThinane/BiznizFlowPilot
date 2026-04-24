@@ -10,12 +10,18 @@ from app.core.database import get_db
 from app.dependencies import get_current_user
 from app.schemas.auth import CurrentUser
 from app.schemas.lead import LeadCreate, LeadListResponse, LeadResponse, LeadUpdate
+from app.services.event import EventService
 from app.services.lead import LeadService
 
 router = APIRouter(
     prefix="/api/v1/leads",
     tags=["leads"],
 )
+
+
+def _lead_service(db: Session) -> LeadService:
+    """Create LeadService with EventService wired for auto-event emission."""
+    return LeadService(db, event_service=EventService(db))
 
 
 @router.post("", response_model=LeadResponse)
@@ -29,7 +35,7 @@ def create_lead(
     🧨 RBAC: Only owner/manager can create.
     """
     try:
-        service = LeadService(db)
+        service = _lead_service(db)
         lead = service.create(current_user.business_id, current_user, data)
         db.commit()
         return lead
@@ -54,7 +60,7 @@ def list_leads(
     
     🧨 RBAC: Owner/Manager see all. Staff see assigned to them.
     """
-    service = LeadService(db)
+    service = _lead_service(db)
 
     if status:
         leads, total = service.list_by_status(current_user.business_id, current_user, status, skip=skip, limit=limit)
@@ -79,7 +85,7 @@ def get_lead(
     
     🧨 RBAC: All roles can view leads in their business.
     """
-    service = LeadService(db)
+    service = _lead_service(db)
     lead = service.get(current_user.business_id, current_user, lead_id)
 
     if not lead:
@@ -100,7 +106,7 @@ def update_lead(
     🧨 RBAC: Owner/Manager can edit all. Staff can only update their own.
     """
     try:
-        service = LeadService(db)
+        service = _lead_service(db)
         lead = service.update(current_user.business_id, current_user, lead_id, data)
 
         if not lead:
@@ -129,7 +135,7 @@ def assign_lead(
     🧨 RBAC: Only owner/manager can assign.
     """
     try:
-        service = LeadService(db)
+        service = _lead_service(db)
         lead = service.assign(current_user.business_id, current_user, lead_id, assigned_to)
 
         if not lead:
@@ -157,7 +163,7 @@ def delete_lead(
     🧨 RBAC: Only owner can delete.
     """
     try:
-        service = LeadService(db)
+        service = _lead_service(db)
         success = service.delete(current_user.business_id, current_user, lead_id)
 
         if not success:
