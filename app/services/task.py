@@ -91,7 +91,7 @@ class TaskService:
             event_type=EventType.TASK_CREATED,
             business_id=business_id,
             entity_id=task.id,
-            actor_id=UUID(current_user.user_id),
+            actor_id=current_user.user_id,
             description=f"Task created: '{task.title}'",
             data={
                 "title": task.title,
@@ -201,7 +201,7 @@ class TaskService:
                     event_type=EventType.TASK_COMPLETED,
                     business_id=business_id,
                     entity_id=task_id,
-                    actor_id=UUID(current_user.user_id),
+                    actor_id=current_user.user_id,
                     description=f"Task completed: '{updated_task.title}'",
                     data={"title": updated_task.title, "old_status": old_status},
                 )
@@ -210,7 +210,7 @@ class TaskService:
                     event_type=EventType.TASK_UPDATED,
                     business_id=business_id,
                     entity_id=task_id,
-                    actor_id=UUID(current_user.user_id),
+                    actor_id=current_user.user_id,
                     description=f"Task status changed: {old_status} → {data.status}",
                     data={"old_status": old_status, "new_status": data.status},
                 )
@@ -219,7 +219,7 @@ class TaskService:
                     event_type=EventType.TASK_UPDATED,
                     business_id=business_id,
                     entity_id=task_id,
-                    actor_id=UUID(current_user.user_id),
+                    actor_id=current_user.user_id,
                     description="Task updated",
                     data={"updated_fields": list(update_data.keys())},
                 )
@@ -246,7 +246,7 @@ class TaskService:
                 event_type=EventType.TASK_ASSIGNED,
                 business_id=business_id,
                 entity_id=task_id,
-                actor_id=UUID(current_user.user_id),
+                actor_id=current_user.user_id,
                 description=f"Task '{updated_task.title}' assigned to {assigned_to}",
                 data={
                     "title": updated_task.title,
@@ -274,7 +274,7 @@ class TaskService:
             event_type=EventType.TASK_DELETED,
             business_id=business_id,
             entity_id=task_id,
-            actor_id=UUID(current_user.user_id),
+            actor_id=current_user.user_id,
             description=f"Task deleted: '{task.title}'",
             data={"title": task.title, "status": task.status},
         )

@@ -11,6 +11,11 @@ from app.models.lead import Lead
 from app.models.task import Task
 from app.models.event import Event
 from app.models.workflow import Workflow, WorkflowAction, WorkflowDefinition, WorkflowRun
+from app.models.product import Product
+from app.models.inventory import InventoryLocation, StockLevel
+from app.models.supplier import Supplier
+from app.models.sales_order import SalesOrder, OrderLineItem
+from app.models.purchase_order import PurchaseOrder, PurchaseOrderLineItem
 
 __all__ = [
     "Base",
@@ -24,4 +29,12 @@ __all__ = [
     "WorkflowAction",
     "WorkflowDefinition",
     "WorkflowRun",
+    "Product",
+    "InventoryLocation",
+    "StockLevel",
+    "Supplier",
+    "SalesOrder",
+    "OrderLineItem",
+    "PurchaseOrder",
+    "PurchaseOrderLineItem",
 ]

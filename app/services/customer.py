@@ -80,7 +80,7 @@ class CustomerService:
             event_type=EventType.CUSTOMER_CREATED,
             business_id=business_id,
             entity_id=customer.id,
-            actor_id=UUID(current_user.user_id),
+            actor_id=current_user.user_id,
             description=f"Customer created: '{customer.name}'",
             data={"name": customer.name, "email": customer.email, "company": customer.company},
         )
@@ -133,7 +133,7 @@ class CustomerService:
                 event_type=EventType.CUSTOMER_UPDATED,
                 business_id=business_id,
                 entity_id=customer_id,
-                actor_id=UUID(current_user.user_id),
+                actor_id=current_user.user_id,
                 description=f"Customer updated: '{updated_customer.name}'",
                 data={"updated_fields": list(update_data.keys())},
             )
@@ -158,7 +158,7 @@ class CustomerService:
             event_type=EventType.CUSTOMER_DELETED,
             business_id=business_id,
             entity_id=customer_id,
-            actor_id=UUID(current_user.user_id),
+            actor_id=current_user.user_id,
             description=f"Customer deleted: '{customer.name}'",
             data={"name": customer.name, "email": customer.email},
         )

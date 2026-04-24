@@ -90,7 +90,7 @@ class LeadService:
             event_type=EventType.LEAD_CREATED,
             business_id=business_id,
             entity_id=lead.id,
-            actor_id=UUID(current_user.user_id),
+            actor_id=current_user.user_id,
             description=f"Lead created with status '{lead.status}'",
             data={"status": lead.status, "source": lead.source},
         )
@@ -165,7 +165,7 @@ class LeadService:
                     event_type=EventType.LEAD_STATUS_CHANGED,
                     business_id=business_id,
                     entity_id=lead_id,
-                    actor_id=UUID(current_user.user_id),
+                    actor_id=current_user.user_id,
                     description=f"Lead status changed: {old_status} → {data.status}",
                     data={"old_status": old_status, "new_status": data.status},
                 )
@@ -174,7 +174,7 @@ class LeadService:
                     event_type=EventType.LEAD_UPDATED,
                     business_id=business_id,
                     entity_id=lead_id,
-                    actor_id=UUID(current_user.user_id),
+                    actor_id=current_user.user_id,
                     description="Lead updated",
                     data={"updated_fields": list(update_data.keys())},
                 )
@@ -201,7 +201,7 @@ class LeadService:
                 event_type=EventType.LEAD_ASSIGNED,
                 business_id=business_id,
                 entity_id=lead_id,
-                actor_id=UUID(current_user.user_id),
+                actor_id=current_user.user_id,
                 description=f"Lead assigned to {assigned_to}",
                 data={
                     "old_assigned_to": str(old_assigned) if old_assigned else None,
@@ -228,7 +228,7 @@ class LeadService:
             event_type=EventType.LEAD_DELETED,
             business_id=business_id,
             entity_id=lead_id,
-            actor_id=UUID(current_user.user_id),
+            actor_id=current_user.user_id,
             description=f"Lead deleted (was status='{lead.status}')",
             data={"status": lead.status, "source": lead.source},
         )
