@@ -12,6 +12,7 @@ from app.models import Event, WorkflowRun
 from app.repositories.workflow import WorkflowActionRepository, WorkflowRunRepository
 from app.workflow_engine.action_config import parse_action_config
 from app.workflow_engine.definition_provider import DefinitionProvider
+from app.workflow_engine.condition_evaluator import evaluate_conditions
 
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,24 @@ class WorkflowDispatcher:
             try:
                 if not definition.is_active:
                     continue
-                # TODO Phase 5: evaluate definition.conditions against event.data here.
+
+                # Evaluate conditions
+                # We provide a basic context representing the event payload
+                event_context = {
+                    "event": {
+                        "type": event.event_type.value if hasattr(event.event_type, "value") else str(event.event_type),
+                        "entity_type": event.entity_type,
+                        "entity_id": str(event.entity_id),
+                        "data": event.data or {}
+                    }
+                }
+                
+                conditions = definition.conditions or []
+                if isinstance(conditions, dict):
+                    conditions = [conditions]
+                    
+                if not evaluate_conditions(conditions, event_context):
+                    continue
 
                 if definition.id is None:
                     raise ValueError("Workflow definition is missing an ID")
