@@ -69,6 +69,11 @@ class EventType(str, Enum):
     PRODUCT_UPDATED = "product_updated"
     PRODUCT_DELETED = "product_deleted"
 
+    # --- ERP: Suppliers ---
+    SUPPLIER_CREATED = "supplier_created"
+    SUPPLIER_UPDATED = "supplier_updated"
+    SUPPLIER_DELETED = "supplier_deleted"
+
     # --- ERP: Sales Orders ---
     ORDER_CREATED = "order_created"
     ORDER_CONFIRMED = "order_confirmed"

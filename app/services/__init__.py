@@ -13,6 +13,11 @@ from app.services.recovery import (
 from app.services.task import TaskService
 from app.services.workflow import WorkflowService
 from app.services.workflow_definition import WorkflowDefinitionService
+from app.services.product import ProductService
+from app.services.inventory import InventoryService
+from app.services.supplier import SupplierService
+from app.services.sales_order import SalesOrderService
+from app.services.purchase_order import PurchaseOrderService
 
 __all__ = [
     "AuthService",
@@ -26,4 +31,9 @@ __all__ = [
     "WorkflowRunRecoveryService",
     "WorkflowService",
     "WorkflowDefinitionService",
+    "ProductService",
+    "InventoryService",
+    "SupplierService",
+    "SalesOrderService",
+    "PurchaseOrderService",
 ]

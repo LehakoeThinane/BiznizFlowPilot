@@ -26,6 +26,33 @@ from app.schemas.workflow import (
     WorkflowRunResponse,
     WorkflowRunListResponse,
 )
+from app.schemas.product import ProductCreate, ProductListResponse, ProductResponse, ProductUpdate
+from app.schemas.inventory import (
+    LocationCreate,
+    LocationResponse,
+    LocationUpdate,
+    StockAdjustment,
+    StockLevelCreate,
+    StockLevelResponse,
+    StockLevelUpdate,
+)
+from app.schemas.supplier import SupplierCreate, SupplierListResponse, SupplierResponse, SupplierUpdate
+from app.schemas.sales_order import (
+    LineItemCreate,
+    LineItemResponse,
+    OrderCreate,
+    OrderListResponse,
+    OrderResponse,
+    OrderUpdate,
+)
+from app.schemas.purchase_order import (
+    POCreate,
+    POLineItemCreate,
+    POLineItemResponse,
+    POListResponse,
+    POResponse,
+    POUpdate,
+)
 
 __all__ = [
     # Auth
@@ -76,4 +103,36 @@ __all__ = [
     "WorkflowDefinitionListResponse",
     "WorkflowRunResponse",
     "WorkflowRunListResponse",
+    # Product
+    "ProductCreate",
+    "ProductUpdate",
+    "ProductResponse",
+    "ProductListResponse",
+    # Inventory
+    "LocationCreate",
+    "LocationUpdate",
+    "LocationResponse",
+    "StockLevelCreate",
+    "StockLevelUpdate",
+    "StockLevelResponse",
+    "StockAdjustment",
+    # Supplier
+    "SupplierCreate",
+    "SupplierUpdate",
+    "SupplierResponse",
+    "SupplierListResponse",
+    # Sales Order
+    "OrderCreate",
+    "OrderUpdate",
+    "OrderResponse",
+    "OrderListResponse",
+    "LineItemCreate",
+    "LineItemResponse",
+    # Purchase Order
+    "POCreate",
+    "POUpdate",
+    "POResponse",
+    "POListResponse",
+    "POLineItemCreate",
+    "POLineItemResponse",
 ]
