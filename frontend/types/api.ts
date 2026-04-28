@@ -182,3 +182,183 @@ export interface TaskListResponse {
   skip: number;
   limit: number;
 }
+
+// ─── ERP: Products ────────────────────────────────────────────────────────────
+
+export type ProductType = "physical" | "digital" | "service";
+
+export interface Product {
+  id: string;
+  business_id: string;
+  sku: string;
+  name: string;
+  description: string | null;
+  product_type: ProductType;
+  category: string | null;
+  unit_price: string;
+  cost_price: string | null;
+  tax_rate: string;
+  is_active: boolean;
+  track_inventory: boolean;
+  barcode: string | null;
+  weight: string | null;
+  weight_unit: string;
+  meta_data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductListResponse {
+  items: Product[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+// ─── ERP: Suppliers ───────────────────────────────────────────────────────────
+
+export interface Supplier {
+  id: string;
+  business_id: string;
+  name: string;
+  code: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  payment_terms: string | null;
+  tax_id: string | null;
+  is_active: boolean;
+  rating: number | null;
+  notes: string | null;
+  meta_data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupplierListResponse {
+  items: Supplier[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+// ─── ERP: Inventory ───────────────────────────────────────────────────────────
+
+export interface InventoryLocation {
+  id: string;
+  business_id: string;
+  name: string;
+  code: string | null;
+  location_type: string;
+  is_active: boolean;
+  meta_data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StockLevel {
+  id: string;
+  product_id: string;
+  location_id: string;
+  quantity: number;
+  reserved: number;
+  available: number;
+  reorder_point: number;
+  reorder_quantity: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── ERP: Sales Orders ────────────────────────────────────────────────────────
+
+export type SalesOrderStatus =
+  | "draft"
+  | "confirmed"
+  | "processing"
+  | "shipped"
+  | "delivered"
+  | "cancelled";
+
+export interface OrderLineItem {
+  id: string;
+  order_id: string;
+  product_id: string | null;
+  quantity: number;
+  unit_price: string;
+  subtotal: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SalesOrder {
+  id: string;
+  business_id: string;
+  order_number: string;
+  customer_id: string | null;
+  status: SalesOrderStatus;
+  order_date: string | null;
+  total_amount: string;
+  tracking_number: string | null;
+  carrier: string | null;
+  notes: string | null;
+  meta_data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  line_items: OrderLineItem[];
+}
+
+export interface SalesOrderListResponse {
+  items: SalesOrder[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+// ─── ERP: Purchase Orders ─────────────────────────────────────────────────────
+
+export type PurchaseOrderStatus =
+  | "draft"
+  | "sent"
+  | "confirmed"
+  | "partially_received"
+  | "received"
+  | "cancelled";
+
+export interface POLineItem {
+  id: string;
+  po_id: string;
+  product_id: string | null;
+  quantity_ordered: number;
+  quantity_received: number;
+  unit_cost: string;
+  subtotal: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  business_id: string;
+  po_number: string;
+  supplier_id: string | null;
+  status: PurchaseOrderStatus;
+  order_date: string | null;
+  expected_date: string | null;
+  received_date: string | null;
+  total_cost: string;
+  notes: string | null;
+  receiving_location_id: string | null;
+  meta_data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  line_items: POLineItem[];
+}
+
+export interface PurchaseOrderListResponse {
+  items: PurchaseOrder[];
+  total: number;
+  skip: number;
+  limit: number;
+}

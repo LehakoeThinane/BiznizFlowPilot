@@ -17,6 +17,11 @@ const MENU_ITEMS: MenuItem[] = [
   { href: "/runs", label: "Runs", roles: ["owner", "manager"] },
   { href: "/leads", label: "Leads", roles: ["owner", "manager", "staff"] },
   { href: "/tasks", label: "Tasks", roles: ["owner", "manager", "staff"] },
+  { href: "/products", label: "Products", roles: ["owner", "manager", "staff"] },
+  { href: "/suppliers", label: "Suppliers", roles: ["owner", "manager"] },
+  { href: "/inventory", label: "Inventory", roles: ["owner", "manager", "staff"] },
+  { href: "/sales-orders", label: "Sales Orders", roles: ["owner", "manager", "staff"] },
+  { href: "/purchase-orders", label: "Purchase Orders", roles: ["owner", "manager"] },
 ];
 
 interface RoleMenuProps {
