@@ -14,12 +14,12 @@ class LineItemBase(BaseModel):
     product_id: Optional[UUID] = None
     product_snapshot: Optional[Dict[str, Any]] = None
     quantity: int
-    unit_price: Decimal = Field(..., max_digits=10, decimal_places=2)
-    discount_percent: Decimal = Field(default=Decimal("0.00"), max_digits=5, decimal_places=2)
-    discount_amount: Decimal = Field(default=Decimal("0.00"), max_digits=10, decimal_places=2)
-    tax_rate: Decimal = Field(default=Decimal("0.00"), max_digits=5, decimal_places=2)
-    tax_amount: Decimal = Field(default=Decimal("0.00"), max_digits=10, decimal_places=2)
-    subtotal: Decimal = Field(..., max_digits=10, decimal_places=2)
+    unit_price: Decimal
+    discount_percent: Decimal = Decimal("0.00")
+    discount_amount: Decimal = Decimal("0.00")
+    tax_rate: Decimal = Decimal("0.00")
+    tax_amount: Decimal = Decimal("0.00")
+    subtotal: Decimal
     notes: Optional[str] = None
 
 
@@ -52,11 +52,11 @@ class OrderBase(BaseModel):
     actual_ship_date: Optional[date] = None
     expected_delivery_date: Optional[date] = None
     actual_delivery_date: Optional[date] = None
-    subtotal: Decimal = Field(default=Decimal("0.00"), max_digits=10, decimal_places=2)
-    tax_total: Decimal = Field(default=Decimal("0.00"), max_digits=10, decimal_places=2)
-    shipping_cost: Decimal = Field(default=Decimal("0.00"), max_digits=10, decimal_places=2)
-    discount_amount: Decimal = Field(default=Decimal("0.00"), max_digits=10, decimal_places=2)
-    total_amount: Decimal = Field(..., max_digits=10, decimal_places=2)
+    subtotal: Decimal = Decimal("0.00")
+    tax_total: Decimal = Decimal("0.00")
+    shipping_cost: Decimal = Decimal("0.00")
+    discount_amount: Decimal = Decimal("0.00")
+    total_amount: Decimal
     shipping_address: Optional[Dict[str, Any]] = None
     billing_address: Optional[Dict[str, Any]] = None
     tracking_number: Optional[str] = Field(None, max_length=100)
@@ -83,11 +83,11 @@ class OrderUpdate(BaseModel):
     actual_ship_date: Optional[date] = None
     expected_delivery_date: Optional[date] = None
     actual_delivery_date: Optional[date] = None
-    subtotal: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
-    tax_total: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
-    shipping_cost: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
-    discount_amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
-    total_amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
+    subtotal: Optional[Decimal] = None
+    tax_total: Optional[Decimal] = None
+    shipping_cost: Optional[Decimal] = None
+    discount_amount: Optional[Decimal] = None
+    total_amount: Optional[Decimal] = None
     shipping_address: Optional[Dict[str, Any]] = None
     billing_address: Optional[Dict[str, Any]] = None
     tracking_number: Optional[str] = Field(None, max_length=100)

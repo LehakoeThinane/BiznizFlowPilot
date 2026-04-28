@@ -13,11 +13,11 @@ class POLineItemBase(BaseModel):
 
     product_id: Optional[UUID] = None
     quantity_ordered: int
-    quantity_received: int = Field(default=0)
-    unit_cost: Decimal = Field(..., max_digits=10, decimal_places=2)
-    tax_rate: Decimal = Field(default=Decimal("0.00"), max_digits=5, decimal_places=2)
-    tax_amount: Decimal = Field(default=Decimal("0.00"), max_digits=10, decimal_places=2)
-    subtotal: Decimal = Field(..., max_digits=10, decimal_places=2)
+    quantity_received: int = 0
+    unit_cost: Decimal
+    tax_rate: Decimal = Decimal("0.00")
+    tax_amount: Decimal = Decimal("0.00")
+    subtotal: Decimal
     notes: Optional[str] = None
 
 
@@ -47,10 +47,10 @@ class POBase(BaseModel):
     order_date: Optional[datetime] = None
     expected_date: Optional[date] = None
     received_date: Optional[date] = None
-    subtotal: Decimal = Field(default=Decimal("0.00"), max_digits=10, decimal_places=2)
-    tax_total: Decimal = Field(default=Decimal("0.00"), max_digits=10, decimal_places=2)
-    shipping_cost: Decimal = Field(default=Decimal("0.00"), max_digits=10, decimal_places=2)
-    total_cost: Decimal = Field(..., max_digits=10, decimal_places=2)
+    subtotal: Decimal = Decimal("0.00")
+    tax_total: Decimal = Decimal("0.00")
+    shipping_cost: Decimal = Decimal("0.00")
+    total_cost: Decimal
     notes: Optional[str] = None
     receiving_location_id: Optional[UUID] = None
     meta_data: Dict[str, Any] = Field(default_factory=dict)
@@ -70,10 +70,10 @@ class POUpdate(BaseModel):
     status: Optional[str] = Field(None, pattern="^(draft|sent|confirmed|partially_received|received|cancelled)$")
     expected_date: Optional[date] = None
     received_date: Optional[date] = None
-    subtotal: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
-    tax_total: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
-    shipping_cost: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
-    total_cost: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
+    subtotal: Optional[Decimal] = None
+    tax_total: Optional[Decimal] = None
+    shipping_cost: Optional[Decimal] = None
+    total_cost: Optional[Decimal] = None
     notes: Optional[str] = None
     receiving_location_id: Optional[UUID] = None
     meta_data: Optional[Dict[str, Any]] = None

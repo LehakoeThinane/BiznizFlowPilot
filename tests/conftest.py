@@ -20,7 +20,10 @@ from app.models import Base
 from app.models.business import Business
 from app.models.user import User
 from app.models.customer import Customer
+from app.models.inventory import InventoryLocation
 from app.models.lead import Lead
+from app.models.product import Product
+from app.models.supplier import Supplier
 from app.models.task import Task
 from app.schemas.auth import CurrentUser
 
@@ -262,6 +265,66 @@ def sample_task(test_db: Session, owner_business: Business, sample_lead: Lead) -
     test_db.add(task)
     test_db.commit()
     return task
+
+
+# ============================================================================
+# ERP Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def sample_product(test_db: Session, owner_business: Business) -> Product:
+    """Create sample product."""
+    product = Product(
+        id=uuid4(),
+        business_id=owner_business.id,
+        sku="SKU-001",
+        name="Widget Pro",
+        product_type="physical",
+        unit_price=99.99,
+        tax_rate=0.00,
+        is_active=True,
+        track_inventory=True,
+        weight_unit="kg",
+        meta_data={},
+    )
+    test_db.add(product)
+    test_db.commit()
+    return product
+
+
+@pytest.fixture
+def sample_supplier(test_db: Session, owner_business: Business) -> Supplier:
+    """Create sample supplier."""
+    supplier = Supplier(
+        id=uuid4(),
+        business_id=owner_business.id,
+        name="Acme Supplies",
+        code="ACME",
+        email="supply@acme.com",
+        is_active=True,
+        meta_data={},
+    )
+    test_db.add(supplier)
+    test_db.commit()
+    return supplier
+
+
+@pytest.fixture
+def sample_location(test_db: Session, owner_business: Business) -> InventoryLocation:
+    """Create sample inventory location."""
+    location = InventoryLocation(
+        id=uuid4(),
+        business_id=owner_business.id,
+        name="Main Warehouse",
+        code="WH-01",
+        location_type="warehouse",
+        is_active=True,
+        meta_data={},
+    )
+    test_db.add(location)
+    test_db.commit()
+    return location
 
 
 # ============================================================================

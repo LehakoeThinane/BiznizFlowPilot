@@ -16,13 +16,13 @@ class ProductBase(BaseModel):
     description: Optional[str] = None
     product_type: str = Field(default="physical", pattern="^(physical|digital|service)$")
     category: Optional[str] = Field(None, max_length=100)
-    unit_price: Decimal = Field(..., max_digits=10, decimal_places=2)
-    cost_price: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
-    tax_rate: Decimal = Field(default=Decimal("0.00"), max_digits=5, decimal_places=2)
+    unit_price: Decimal
+    cost_price: Optional[Decimal] = None
+    tax_rate: Decimal = Decimal("0.00")
     is_active: bool = True
     track_inventory: bool = True
     barcode: Optional[str] = Field(None, max_length=100)
-    weight: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
+    weight: Optional[Decimal] = None
     weight_unit: str = Field(default="kg", max_length=10)
     dimensions: Optional[Dict[str, Any]] = None
     meta_data: Dict[str, Any] = Field(default_factory=dict)
@@ -42,13 +42,13 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
     product_type: Optional[str] = Field(None, pattern="^(physical|digital|service)$")
     category: Optional[str] = Field(None, max_length=100)
-    unit_price: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
-    cost_price: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
-    tax_rate: Optional[Decimal] = Field(None, max_digits=5, decimal_places=2)
+    unit_price: Optional[Decimal] = None
+    cost_price: Optional[Decimal] = None
+    tax_rate: Optional[Decimal] = None
     is_active: Optional[bool] = None
     track_inventory: Optional[bool] = None
     barcode: Optional[str] = Field(None, max_length=100)
-    weight: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
+    weight: Optional[Decimal] = None
     weight_unit: Optional[str] = Field(None, max_length=10)
     dimensions: Optional[Dict[str, Any]] = None
     meta_data: Optional[Dict[str, Any]] = None
