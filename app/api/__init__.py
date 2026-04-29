@@ -2,6 +2,7 @@
 
 from app.api import (
     auth,
+    chat,
     customers,
     events,
     inventory,
@@ -19,6 +20,7 @@ from app.api import (
 
 __all__ = [
     "auth",
+    "chat",
     "customers",
     "events",
     "inventory",

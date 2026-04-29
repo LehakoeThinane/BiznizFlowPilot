@@ -13,6 +13,7 @@ interface MenuItem {
 
 const MENU_ITEMS: MenuItem[] = [
   { href: "/dashboard", label: "Dashboard", roles: ["owner", "manager"] },
+  { href: "/chat", label: "AI Assistant", roles: ["owner", "manager", "staff"] },
   { href: "/workflows", label: "Workflows", roles: ["owner", "manager"] },
   { href: "/runs", label: "Runs", roles: ["owner", "manager"] },
   { href: "/leads", label: "Leads", roles: ["owner", "manager", "staff"] },

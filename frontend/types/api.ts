@@ -362,3 +362,50 @@ export interface PurchaseOrderListResponse {
   skip: number;
   limit: number;
 }
+
+// ─── Chat ─────────────────────────────────────────────────────────────────────
+
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  mentions_data: ResolvedMention[];
+  actions_data: unknown[];
+  created_at: string;
+}
+
+export interface ChatConversation {
+  id: string;
+  business_id: string;
+  user_id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatConversationDetail extends ChatConversation {
+  messages: ChatMessage[];
+}
+
+export interface ResolvedMention {
+  type: string;
+  value: string;
+  found: boolean;
+  entity_id: string | null;
+  display_name: string;
+}
+
+export interface SendMessageResponse {
+  conversation_id: string;
+  reply: string;
+  resolved_mentions: ResolvedMention[];
+  user_message_id: string;
+  assistant_message_id: string;
+}
+
+export interface MentionSearchResult {
+  id: string;
+  label: string;
+  sub: string;
+}

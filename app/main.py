@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
     auth,
+    chat,
     customers,
     events,
     inventory,
@@ -100,6 +101,9 @@ app.include_router(suppliers.router)
 app.include_router(inventory.router)
 app.include_router(sales_orders.router)
 app.include_router(purchase_orders.router)
+
+# AI chat routes (auth required)
+app.include_router(chat.router)
 
 
 # ============================================================================

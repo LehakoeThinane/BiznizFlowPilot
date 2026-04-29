@@ -19,31 +19,29 @@ branch_labels = None
 depends_on = None
 
 
+# Used for explicit CREATE TYPE (with checkfirst)
 product_type_enum = postgresql.ENUM(
-    "physical",
-    "digital",
-    "service",
+    "physical", "digital", "service",
     name="product_type",
 )
-
 order_status_enum = postgresql.ENUM(
-    "draft",
-    "confirmed",
-    "processing",
-    "shipped",
-    "delivered",
-    "cancelled",
+    "draft", "confirmed", "processing", "shipped", "delivered", "cancelled",
     name="order_status",
 )
-
 purchase_order_status_enum = postgresql.ENUM(
-    "draft",
-    "sent",
-    "confirmed",
-    "partially_received",
-    "received",
-    "cancelled",
+    "draft", "sent", "confirmed", "partially_received", "received", "cancelled",
     name="purchase_order_status",
+)
+
+# Used inside create_table — create_type=False prevents a duplicate CREATE TYPE
+_pt = postgresql.ENUM("physical", "digital", "service", name="product_type", create_type=False)
+_os = postgresql.ENUM(
+    "draft", "confirmed", "processing", "shipped", "delivered", "cancelled",
+    name="order_status", create_type=False,
+)
+_pos = postgresql.ENUM(
+    "draft", "sent", "confirmed", "partially_received", "received", "cancelled",
+    name="purchase_order_status", create_type=False,
 )
 
 
@@ -62,7 +60,7 @@ def upgrade() -> None:
         sa.Column("sku", sa.String(length=100), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("product_type", product_type_enum, nullable=False, server_default=sa.text("'physical'")),
+        sa.Column("product_type", _pt, nullable=False, server_default=sa.text("'physical'")),
         sa.Column("category", sa.String(length=100), nullable=True),
         sa.Column("unit_price", sa.Numeric(10, 2), nullable=False),
         sa.Column("cost_price", sa.Numeric(10, 2), nullable=True),
@@ -165,7 +163,7 @@ def upgrade() -> None:
         sa.Column("order_number", sa.String(length=50), nullable=False),
         sa.Column("customer_id", sa.UUID(), nullable=True),
         sa.Column("lead_id", sa.UUID(), nullable=True),
-        sa.Column("status", order_status_enum, nullable=False, server_default=sa.text("'draft'")),
+        sa.Column("status", _os, nullable=False, server_default=sa.text("'draft'")),
         sa.Column("order_date", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("expected_ship_date", sa.Date(), nullable=True),
         sa.Column("actual_ship_date", sa.Date(), nullable=True),
@@ -225,7 +223,7 @@ def upgrade() -> None:
         sa.Column("business_id", sa.UUID(), nullable=False),
         sa.Column("po_number", sa.String(length=50), nullable=False),
         sa.Column("supplier_id", sa.UUID(), nullable=True),
-        sa.Column("status", purchase_order_status_enum, nullable=False, server_default=sa.text("'draft'")),
+        sa.Column("status", _pos, nullable=False, server_default=sa.text("'draft'")),
         sa.Column("order_date", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("expected_date", sa.Date(), nullable=True),
         sa.Column("received_date", sa.Date(), nullable=True),

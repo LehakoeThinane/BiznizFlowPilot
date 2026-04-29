@@ -83,6 +83,17 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # AI / LLM
+    ai_provider: str = "echo"  # echo | ollama | anthropic | groq
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2"
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-6"
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
+    ai_max_tokens: int = 1024
+    ai_conversation_history_limit: int = 20
+
     @classmethod
     def settings_customise_sources(
         cls,

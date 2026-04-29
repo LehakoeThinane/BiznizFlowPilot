@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { AuthGuard } from "@/components/AuthGuard";
+import { ChatPanel } from "@/components/ChatPanel";
 import { RoleMenu } from "@/components/RoleMenu";
 import { logout } from "@/lib/auth";
 import type { CurrentUser } from "@/types/api";
@@ -49,6 +50,7 @@ export default function DashboardLayout({
           <main className="flex-1 p-6">{children}</main>
         </div>
       </div>
+      <ChatPanel />
     </AuthGuard>
   );
 }
