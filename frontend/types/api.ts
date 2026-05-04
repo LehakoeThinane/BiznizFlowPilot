@@ -43,11 +43,46 @@ export interface BusinessUserListResponse {
   items: BusinessUser[];
 }
 
+export interface DashboardSalesKPIs {
+  revenue_total: string;
+  revenue_this_month: string;
+  open_orders: number;
+  orders_total: number;
+}
+
+export interface DashboardLeadKPIs {
+  open_leads: number;
+  new_leads: number;
+  qualified_leads: number;
+  won_leads: number;
+  lost_leads: number;
+}
+
+export interface DashboardTaskKPIs {
+  overdue: number;
+  due_today: number;
+  pending: number;
+}
+
+export interface DashboardInventoryKPIs {
+  low_stock_products: number;
+  out_of_stock_products: number;
+  total_active_products: number;
+  total_suppliers: number;
+}
+
+export interface DashboardWorkflowKPIs {
+  total_definitions: number;
+  active_runs: number;
+  failed_runs_today: number;
+}
+
 export interface DashboardMetricsResponse {
-  totalWorkflows: number;
-  activeRuns: number;
-  pendingTasks: number;
-  totalLeads: number;
+  sales: DashboardSalesKPIs;
+  leads: DashboardLeadKPIs;
+  tasks: DashboardTaskKPIs;
+  inventory: DashboardInventoryKPIs;
+  workflows: DashboardWorkflowKPIs;
   refreshedAt: string;
 }
 

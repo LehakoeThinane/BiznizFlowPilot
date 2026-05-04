@@ -9,6 +9,7 @@ from app.api import (
     auth,
     chat,
     customers,
+    dashboard,
     events,
     inventory,
     leads,
@@ -94,6 +95,7 @@ app.include_router(users.router)
 app.include_router(workflows.router)
 app.include_router(workflow_definitions.router)
 app.include_router(metrics.router)
+app.include_router(dashboard.router)
 
 # ERP routes (auth required)
 app.include_router(products.router)
