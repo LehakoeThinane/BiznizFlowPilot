@@ -16,6 +16,10 @@ from app.models.inventory import InventoryLocation, StockLevel
 from app.models.supplier import Supplier
 from app.models.sales_order import SalesOrder, OrderLineItem
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderLineItem
+from app.models.finance import Expense, ExpenseCategory
+from app.models.hr import Department, Employee, LeaveRequest, LeaveType, PayrollPeriod, Payslip
+from app.models.invoice import Invoice, InvoiceLineItem
+from app.models.notification import Notification
 
 __all__ = [
     "Base",
@@ -37,4 +41,15 @@ __all__ = [
     "OrderLineItem",
     "PurchaseOrder",
     "PurchaseOrderLineItem",
+    "ExpenseCategory",
+    "Expense",
+    "Department",
+    "Employee",
+    "LeaveType",
+    "LeaveRequest",
+    "PayrollPeriod",
+    "Payslip",
+    "Invoice",
+    "InvoiceLineItem",
+    "Notification",
 ]

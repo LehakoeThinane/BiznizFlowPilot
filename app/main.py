@@ -11,9 +11,13 @@ from app.api import (
     customers,
     dashboard,
     events,
+    finance,
+    hr,
     inventory,
+    invoice,
     leads,
     metrics,
+    notification,
     products,
     purchase_orders,
     sales_orders,
@@ -103,6 +107,12 @@ app.include_router(suppliers.router)
 app.include_router(inventory.router)
 app.include_router(sales_orders.router)
 app.include_router(purchase_orders.router)
+
+# Finance, HR, Invoicing, Notifications (auth required)
+app.include_router(finance.router)
+app.include_router(hr.router)
+app.include_router(invoice.router)
+app.include_router(notification.router)
 
 # AI chat routes (auth required)
 app.include_router(chat.router)
