@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { AuthGuard } from "@/components/AuthGuard";
 import { ChatPanel } from "@/components/ChatPanel";
+import { NotificationBell } from "@/components/NotificationBell";
 import { RoleMenu } from "@/components/RoleMenu";
 import { logout } from "@/lib/auth";
 import type { CurrentUser } from "@/types/api";
@@ -97,7 +98,10 @@ export default function DashboardLayout({
         <div className="flex flex-1 flex-col overflow-hidden">
           <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-surface px-6">
             <div />
-            <span className="text-xs text-muted">{user?.email ?? ""}</span>
+            <div className="flex items-center gap-3">
+              <NotificationBell />
+              <span className="text-xs text-muted">{user?.email ?? ""}</span>
+            </div>
           </header>
           <main className="flex-1 overflow-y-auto bg-background p-6">
             {children}

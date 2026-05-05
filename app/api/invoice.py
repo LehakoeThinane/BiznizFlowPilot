@@ -1,14 +1,15 @@
-"""Invoice API — create, list, update status, line items."""
+"""Invoice API — create, list, update status, line items, PDF export."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Annotated
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -22,6 +23,7 @@ from app.schemas.invoice import (
     InvoiceOut,
     InvoiceStatusUpdate,
 )
+from app.utils.notify import notify_business
 
 router = APIRouter(prefix="/api/v1/invoices", tags=["invoices"])
 
@@ -115,6 +117,115 @@ def get_invoice(
     return _invoice_out(inv, db)
 
 
+@router.get("/{inv_id}/pdf", response_class=HTMLResponse)
+def invoice_pdf(
+    inv_id: UUID,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
+    db: Annotated[Session, Depends(get_db)] = None,
+):
+    """Return a print-ready HTML page for the invoice (open in browser → Print → Save as PDF)."""
+    inv = db.query(Invoice).filter(
+        Invoice.id == inv_id, Invoice.business_id == current_user.business_id
+    ).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    customer_name = inv.customer.name if inv.customer else "—"
+    rows_html = ""
+    for li in inv.line_items:
+        rows_html += f"""
+        <tr>
+          <td>{li.description}</td>
+          <td style="text-align:right">{li.quantity}</td>
+          <td style="text-align:right">R {li.unit_price:,.2f}</td>
+          <td style="text-align:right">{li.discount_percent}%</td>
+          <td style="text-align:right">{li.tax_rate}%</td>
+          <td style="text-align:right">R {li.subtotal:,.2f}</td>
+        </tr>"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Invoice {inv.invoice_number}</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: Arial, sans-serif; font-size: 13px; color: #1a1a1a; padding: 40px; }}
+    h1 {{ font-size: 28px; font-weight: 800; color: #1e3a8a; }}
+    .meta {{ display: flex; justify-content: space-between; margin: 24px 0; }}
+    .block {{ line-height: 1.7; }}
+    .block strong {{ display: block; font-size: 11px; text-transform: uppercase;
+                     letter-spacing: .05em; color: #666; margin-bottom: 2px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 24px; }}
+    th {{ background: #f1f5f9; text-align: left; padding: 8px 10px;
+          font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }}
+    td {{ padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }}
+    .totals {{ margin-top: 16px; text-align: right; }}
+    .totals table {{ width: auto; margin-left: auto; }}
+    .totals td {{ padding: 4px 10px; border: none; }}
+    .totals .total-row td {{ font-size: 16px; font-weight: 700; color: #1e3a8a; }}
+    .status {{ display: inline-block; padding: 4px 12px; border-radius: 20px;
+               font-size: 11px; font-weight: 700; text-transform: uppercase;
+               background: #dbeafe; color: #1e40af; margin-bottom: 8px; }}
+    .notes {{ margin-top: 32px; padding: 12px; background: #f8fafc; border-left: 3px solid #1e3a8a; }}
+    @media print {{ body {{ padding: 0; }} }}
+  </style>
+</head>
+<body>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start">
+    <div>
+      <h1>INVOICE</h1>
+      <div class="status">{inv.status.upper()}</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:20px;font-weight:700">{inv.invoice_number}</div>
+      <div style="color:#666">Issued: {inv.issue_date}</div>
+      {"<div style='color:#e11d48'>Due: " + str(inv.due_date) + "</div>" if inv.due_date else ""}
+    </div>
+  </div>
+
+  <div class="meta">
+    <div class="block">
+      <strong>Bill To</strong>
+      {customer_name}<br/>
+    </div>
+    <div class="block">
+      <strong>Payment Terms</strong>
+      {inv.payment_terms or "—"}
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Description</th>
+        <th style="text-align:right">Qty</th>
+        <th style="text-align:right">Unit Price</th>
+        <th style="text-align:right">Disc %</th>
+        <th style="text-align:right">Tax %</th>
+        <th style="text-align:right">Amount</th>
+      </tr>
+    </thead>
+    <tbody>{rows_html}</tbody>
+  </table>
+
+  <div class="totals">
+    <table>
+      <tr><td>Subtotal</td><td>R {inv.subtotal:,.2f}</td></tr>
+      <tr><td>Discount</td><td>- R {inv.discount_amount:,.2f}</td></tr>
+      <tr><td>Tax</td><td>+ R {inv.tax_amount:,.2f}</td></tr>
+      <tr class="total-row"><td>Total</td><td>R {inv.total_amount:,.2f}</td></tr>
+    </table>
+  </div>
+
+  {"<div class='notes'>" + inv.notes + "</div>" if inv.notes else ""}
+
+  <script>window.onload = () => window.print();</script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
 @router.post("", response_model=InvoiceOut, status_code=201)
 def create_invoice(
     data: InvoiceCreate,
@@ -165,12 +276,19 @@ def update_invoice_status(
     ).first()
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    old_status = inv.status
     inv.status = data.status
     if data.status == "paid":
-        from datetime import date
         inv.paid_at = date.today()
     elif data.status == "sent":
         inv.sent_at = datetime.now(timezone.utc)
+    customer_name = inv.customer.name if inv.customer else inv.invoice_number
+    notify_business(
+        db, current_user.business_id, "order_status",
+        f"Invoice {data.status}",
+        f"Invoice {inv.invoice_number} for {customer_name} changed from {old_status} to {data.status}.",
+        action_url="/invoices", related_type="invoice", related_id=inv.id,
+    )
     db.commit()
     db.refresh(inv)
     return _invoice_out(inv, db)

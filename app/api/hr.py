@@ -16,6 +16,7 @@ from app.core.database import get_db
 from app.dependencies import get_current_user
 from app.models.hr import Department, Employee, LeaveRequest, LeaveType, PayrollPeriod, Payslip
 from app.schemas.auth import CurrentUser
+from app.utils.notify import notify_business
 from app.schemas.hr import (
     DepartmentCreate,
     DepartmentOut,
@@ -159,6 +160,15 @@ def create_employee(
     _require_manager(current_user)
     emp = Employee(id=uuid4(), business_id=current_user.business_id, **data.model_dump())
     db.add(emp)
+    db.flush()
+    notify_business(
+        db, current_user.business_id, "system",
+        "New employee added",
+        f"{emp.first_name} {emp.last_name} has been added"
+        + (f" as {emp.position}" if emp.position else "") + ".",
+        action_url="/employees",
+        related_type="employee", related_id=emp.id,
+    )
     db.commit()
     db.refresh(emp)
     return _employee_out(emp)
@@ -261,6 +271,14 @@ def create_leave_request(
         raise HTTPException(status_code=404, detail="Employee not found")
     req = LeaveRequest(id=uuid4(), **data.model_dump())
     db.add(req)
+    db.flush()
+    notify_business(
+        db, current_user.business_id, "leave",
+        "Leave request submitted",
+        f"{emp.first_name} {emp.last_name} requested {data.days_requested} day(s) leave"
+        f" from {data.start_date} to {data.end_date}.",
+        action_url="/leave", related_type="leave_request", related_id=req.id,
+    )
     db.commit()
     db.refresh(req)
     return _leave_out(req)
@@ -282,12 +300,19 @@ def update_leave_status(
     )
     if not req:
         raise HTTPException(status_code=404, detail="Leave request not found")
+    emp_name = f"{req.employee.first_name} {req.employee.last_name}" if req.employee else "Employee"
     req.status = data.status
     if data.status in ("approved", "rejected"):
         req.approved_by = current_user.user_id
         req.approved_at = datetime.now(timezone.utc)
     if data.notes:
         req.notes = data.notes
+    notify_business(
+        db, current_user.business_id, "leave",
+        f"Leave request {data.status}",
+        f"{emp_name}'s leave request ({req.start_date} – {req.end_date}) was {data.status}.",
+        action_url="/leave", related_type="leave_request", related_id=req.id,
+    )
     db.commit()
     db.refresh(req)
     return _leave_out(req)
@@ -394,6 +419,15 @@ def generate_payroll(
     period.total_gross = total_gross
     period.total_deductions = total_deductions
     period.total_net = total_net
+    import calendar as _cal
+    month_name = _cal.month_name[data.period_month]
+    notify_business(
+        db, current_user.business_id, "payroll",
+        "Payroll generated",
+        f"Payroll for {month_name} {data.period_year} has been generated"
+        f" for {len(employees)} employee(s). Total net: R{total_net:,.2f}.",
+        action_url="/payroll", related_type="payroll_period", related_id=period.id,
+    )
     db.commit()
     db.refresh(period)
 
